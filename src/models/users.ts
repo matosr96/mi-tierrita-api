@@ -1,7 +1,7 @@
-import { z } from "zod";
-import { ALL_ROLES, type Role } from "../security/roles.js";
+import { createValidator } from "../common/validate";
+import { ALL_ROLES, type Role } from "../security/roles";
 
-/** Fila de la tabla users tal como la devuelve la capa de acceso a datos. */
+/** Fila de la tabla users tal como la devuelve la consulta. */
 export type UserRow = {
   id: number;
   firstName: string;
@@ -35,31 +35,40 @@ export const toUserResponse = (row: UserRow): UserResponse => ({
   createdAt: row.createdAt.toISOString(),
 });
 
-const username = z.string().trim().min(3).max(50).regex(/^[a-z0-9._-]+$/i, "Solo letras, números, punto, guion y guion bajo");
-const password = z.string().min(8).max(72);
+const USERNAME_RULE = { min: 3, max: 50, pattern: /^[a-z0-9._-]+$/i, patternMessage: "Solo letras, números, punto, guion y guion bajo" };
+const PASSWORD_RULE = { min: 8, max: 72, trim: false };
 
-export const createUserSchema = z.object({
-  firstName: z.string().trim().min(1).max(80),
-  lastName: z.string().trim().min(1).max(80),
-  username,
-  password,
-  role: z.enum(ALL_ROLES as [Role, ...Role[]]),
-});
-export type CreateUserRequest = z.infer<typeof createUserSchema>;
+export type CreateUserRequest = { firstName: string; lastName: string; username: string; password: string; role: Role };
 
-export const changePasswordSchema = z.object({
-  currentPassword: z.string().min(1).max(72),
-  newPassword: password,
-});
-export type ChangePasswordRequest = z.infer<typeof changePasswordSchema>;
-
-export const signinSchema = z.object({
-  username: z.string().trim().min(1).max(50),
-  password: z.string().min(1).max(72),
-});
-export type SigninRequest = z.infer<typeof signinSchema>;
-
-export type SigninResponse = {
-  token: string;
-  user: UserResponse;
+export const parseCreateUser = (body: unknown): CreateUserRequest => {
+  const v = createValidator(body);
+  const firstName = v.string("firstName", { min: 1, max: 80 });
+  const lastName = v.string("lastName", { min: 1, max: 80 });
+  const username = v.string("username", USERNAME_RULE);
+  const password = v.string("password", PASSWORD_RULE);
+  const role = v.oneOf("role", ALL_ROLES);
+  v.done();
+  return { firstName: firstName!, lastName: lastName!, username: username!, password: password!, role: role! };
 };
+
+export type ChangePasswordRequest = { currentPassword: string; newPassword: string };
+
+export const parseChangePassword = (body: unknown): ChangePasswordRequest => {
+  const v = createValidator(body);
+  const currentPassword = v.string("currentPassword", { min: 1, max: 72, trim: false });
+  const newPassword = v.string("newPassword", PASSWORD_RULE);
+  v.done();
+  return { currentPassword: currentPassword!, newPassword: newPassword! };
+};
+
+export type SigninRequest = { username: string; password: string };
+
+export const parseSignin = (body: unknown): SigninRequest => {
+  const v = createValidator(body);
+  const username = v.string("username", { min: 1, max: 50 });
+  const password = v.string("password", { min: 1, max: 72, trim: false });
+  v.done();
+  return { username: username!, password: password! };
+};
+
+export type SigninResponse = { token: string; user: UserResponse };

@@ -1,8 +1,8 @@
-import "./setup-env.js";
+import "./setup-env";
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { signAccessToken, verifyAccessToken } from "../src/security/token.js";
-import { isDomainError } from "../src/common/errors.js";
+import { signAccessToken, verifyAccessToken } from "../src/security/token";
+import { isDomainError } from "../src/common/errors";
 
 test("un token firmado se verifica y conserva sub, rol y versión", () => {
   const token = signAccessToken({ sub: "7", role: "SALES", tv: 3 });

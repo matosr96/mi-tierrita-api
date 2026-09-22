@@ -6,11 +6,10 @@
  * repetido se rechaza para que dos personas no creen la misma migración.
  */
 import { readdirSync, readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { join } from "node:path";
-import { db } from "../data-sources/db.js";
+import { db } from "../data-sources/db";
 
-const migrationsDir = fileURLToPath(new URL("../../migrations/", import.meta.url));
+const migrationsDir = join(__dirname, "..", "..", "migrations");
 
 const ensureControlTable = async () => {
   await db.query(`

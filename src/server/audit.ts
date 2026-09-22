@@ -1,6 +1,6 @@
 import type { RequestHandler } from "express";
-import { auditsDataSource } from "../data-sources/index.js";
-import { getAuth } from "../security/index.js";
+import { recordAudit } from "../business-logic/audits/index";
+import { getAuth } from "../security/index";
 
 const WRITE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
@@ -16,9 +16,7 @@ export const auditMiddleware: RequestHandler = (req, res, next) => {
     const auth = getAuth(req);
     if (auth === undefined) return;
     const resource = req.originalUrl.split("?")[0] ?? req.originalUrl;
-    void auditsDataSource
-      .insert({ userId: auth.userId, method: req.method, resource })
-      .catch((err: unknown) => console.error("No se pudo registrar la auditoría:", err));
+    void recordAudit({ userId: auth.userId, method: req.method, resource }).catch((err: unknown) => console.error("No se pudo registrar la auditoría:", err));
   });
   next();
 };

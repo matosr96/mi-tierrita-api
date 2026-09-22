@@ -1,6 +1,6 @@
 # Mi Tierrita API — guía para sesiones de trabajo
 
-Backend REST de Mi Tierrita SIG (Express 5 + PostgreSQL 16 + TypeScript, ESM). El diseño canónico
+Backend REST de Mi Tierrita SIG (Express 5 + PostgreSQL 16 + TypeScript, CommonJS, imports sin extensión). El diseño canónico
 vive en la documentación técnica del TCC (`~/Desktop/TCC Ingenieria Economica/6 Documentacion tecnica`):
 01 arquitectura, 03 requisitos, 04 casos de uso, 05 modelo de datos, 06 diseño de la API, 08 infraestructura.
 No inventar endpoints ni tablas que no estén ahí sin dejarlo escrito en el README.
@@ -12,9 +12,11 @@ No inventar endpoints ni tablas que no estén ahí sin dejarlo escrito en el REA
 
 ## Reglas de oro
 
-1. **Capas con un solo motivo de cambio**: `routes/` solo HTTP (validar entrada, traducir a respuesta),
-   `business-logic/` solo dominio (jamás importa Express ni escribe SQL), `data-sources/` único lugar
-   con SQL, `models/` solo forma de datos y esquemas zod. Un archivo por operación + barrels.
+1. **Capas con un solo motivo de cambio**: `routes/` solo cablea ruta + `authorize` + controlador (un
+   archivo por entidad); `controllers/` solo HTTP (parsear entrada con `parseX`, llamar a la lógica,
+   responder); `business-logic/` dominio + SQL (jamás importa Express); `data-sources/` solo el pool,
+   transacciones y helpers de errores de PostgreSQL; `models/` solo tipos, `toXResponse` y `parseX`.
+   Un archivo por operación + barrels. Sin zod ni ORM: la validación usa `common/validate.ts`.
 2. **Toda ruta nueva nace protegida**: se monta en `routes/index.ts` después de `authenticate` y
    restringe con `authorize(...)` según la tabla de roles del documento 06. Identidad desde
    `requireAuth(req)`, nunca desde el body.
@@ -29,4 +31,5 @@ No inventar endpoints ni tablas que no estén ahí sin dejarlo escrito en el REA
    transacción que la operación que los cambia, con bloqueo de fila (`SELECT ... FOR UPDATE`).
 8. Listados `{ count, page, pages, items }` con `parsePageRequest`/`toPageResponse`.
 9. Sin clases en dominio: funciones flecha exportadas. Copiar el módulo `categories` antes que inventar.
+   Orden de rutas: las fijas (`/me/password`, `/scenarios/compare`) van antes que las de `/:id`.
 10. Cada módulo nuevo actualiza `docs/openapi.yaml` y la tabla "Estado de la API" del README.

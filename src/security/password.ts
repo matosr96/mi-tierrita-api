@@ -1,5 +1,5 @@
 import bcrypt from "bcryptjs";
-import { config } from "../server/config.js";
+import { config } from "../server/config";
 
 /** Contraseñas con bcrypt (RNF-02): nunca se guardan ni se devuelven en texto plano. */
 export const hashPassword = (plain: string): Promise<string> =>

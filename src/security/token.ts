@@ -1,7 +1,7 @@
 import jwt from "jsonwebtoken";
-import { config } from "../server/config.js";
-import { ErrorCodes, domainError } from "../common/index.js";
-import type { Role } from "./roles.js";
+import { config } from "../server/config";
+import { ErrorCodes, domainError } from "../common/index";
+import type { Role } from "./roles";
 
 /**
  * Sesión sin estado en el servidor: el token lleva el id del usuario, su rol y la

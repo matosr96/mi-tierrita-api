@@ -1,25 +1,36 @@
 openapi: 3.1.0
 info:
   title: Mi Tierrita API
-  version: 0.1.0
+  version: 1.0.0
   description: |
-    Backend REST de Mi Tierrita SIG. Todas las rutas van bajo `/api/v1`.
-    Los listados responden `{ count, page, pages, items }` y los errores `{ "message": "<código>" }`.
-    Aquí solo se documentan los endpoints ya implementados; el catálogo completo está en
-    el documento 06 (Diseño de la API) y se irá agregando a este esquema módulo por módulo.
+    Backend REST de Mi Tierrita SIG. Todas las rutas van bajo `/api/v1` y exigen `Authorization: Bearer <token>`
+    salvo `POST /auth/signin`, `GET /health` y `GET /docs`.
+
+    Convenciones (documento 06):
+    - Los listados aceptan `?page=` (base 1) y `?limit=` (10, máximo 100) y responden `{ count, page, pages, items }`.
+    - Los errores responden `{ "message": "<código>" }` (tabla de códigos en el README). Los errores de validación
+      (código `400`) agregan `details: [{ path, message }]`; el `613` agrega `details.requiredRoles`.
+    - Roles: `ADMIN` (Administrador), `SALES` (Secretaria), `WAREHOUSE` (Bodega).
 servers:
   - url: /api/v1
 tags:
-  - name: Autenticación
-  - name: Usuarios
-  - name: Categorías
-  - name: Sistema
+  - { name: Autenticación }
+  - { name: Usuarios }
+  - { name: Categorías }
+  - { name: Productos e inventario }
+  - { name: Ventas }
+  - { name: Clientes y cartera }
+  - { name: Proveedores }
+  - { name: Finanzas }
+  - { name: Auditoría }
+  - { name: Reportes }
 
 paths:
+  # ------------------------------------------------------------ Autenticación
   /auth/signin:
     post:
       tags: [Autenticación]
-      summary: Iniciar sesión (CU-01)
+      summary: Iniciar sesión (CU-01) — público
       security: []
       requestBody:
         required: true
@@ -42,81 +53,49 @@ paths:
                   token: { type: string }
                   user: { $ref: "#/components/schemas/User" }
         "400": { $ref: "#/components/responses/Validation" }
-        "401": { $ref: "#/components/responses/Error" }
-        "429": { $ref: "#/components/responses/Error" }
-
+        "401": { description: "610 credenciales inválidas · 612 usuario inactivo", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+        "429": { description: "640 demasiados intentos (10 por 15 minutos)", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
   /auth/signout:
     post:
       tags: [Autenticación]
       summary: Cerrar sesión e invalidar todos los tokens vigentes (CU-02)
       responses:
         "204": { description: Sesión cerrada }
-        "401": { $ref: "#/components/responses/Error" }
-
+        "401": { $ref: "#/components/responses/Unauthorized" }
   /auth/me:
     get:
       tags: [Autenticación]
       summary: Usuario autenticado
       responses:
-        "200":
-          description: Datos del usuario
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/User" }
-        "401": { $ref: "#/components/responses/Error" }
+        "200": { description: Usuario, content: { application/json: { schema: { $ref: "#/components/schemas/User" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
 
+  # ------------------------------------------------------------ Usuarios
   /users:
     post:
       tags: [Usuarios]
       summary: Crear usuario (CU-03) — ADMIN
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/CreateUser" }
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/CreateUser" } } } }
       responses:
-        "201":
-          description: Usuario creado
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/User" }
+        "201": { description: Usuario creado, content: { application/json: { schema: { $ref: "#/components/schemas/User" } } } }
         "400": { $ref: "#/components/responses/Validation" }
-        "403": { $ref: "#/components/responses/Error" }
-        "409": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { description: "630 usuario duplicado", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
     get:
       tags: [Usuarios]
       summary: Listar usuarios — ADMIN
-      parameters:
-        - $ref: "#/components/parameters/page"
-        - $ref: "#/components/parameters/limit"
+      parameters: [{ $ref: "#/components/parameters/page" }, { $ref: "#/components/parameters/limit" }]
       responses:
-        "200":
-          description: Listado paginado
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: "#/components/schemas/Page"
-                  - type: object
-                    properties:
-                      items:
-                        type: array
-                        items: { $ref: "#/components/schemas/User" }
-
+        "200": { description: Listado paginado, content: { application/json: { schema: { $ref: "#/components/schemas/UserPage" } } } }
+        "403": { $ref: "#/components/responses/Forbidden" }
   /users/{id}:
     get:
       tags: [Usuarios]
       summary: Consultar usuario — ADMIN
-      parameters:
-        - $ref: "#/components/parameters/id"
+      parameters: [{ $ref: "#/components/parameters/id" }]
       responses:
-        "200":
-          description: Usuario
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/User" }
-        "404": { $ref: "#/components/responses/Error" }
-
+        "200": { description: Usuario, content: { application/json: { schema: { $ref: "#/components/schemas/User" } } } }
+        "404": { description: "603 usuario no encontrado", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
   /users/me/password:
     put:
       tags: [Usuarios]
@@ -133,135 +112,537 @@ paths:
                 newPassword: { type: string, format: password, minLength: 8 }
       responses:
         "204": { description: Contraseña actualizada }
-        "401": { $ref: "#/components/responses/Error" }
+        "401": { description: "610 contraseña actual incorrecta", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
 
+  # ------------------------------------------------------------ Categorías
   /categories:
     post:
       tags: [Categorías]
       summary: Crear categoría — ADMIN, WAREHOUSE
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [name]
-              properties:
-                name: { type: string, maxLength: 80 }
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [name], properties: { name: { type: string, maxLength: 80 } } } } } }
       responses:
-        "201":
-          description: Categoría creada
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/Category" }
-        "409": { $ref: "#/components/responses/Error" }
+        "201": { description: Creada, content: { application/json: { schema: { $ref: "#/components/schemas/Category" } } } }
+        "409": { description: "630 nombre duplicado", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
     get:
       tags: [Categorías]
       summary: Listar categorías — autenticado
-      parameters:
-        - $ref: "#/components/parameters/page"
-        - $ref: "#/components/parameters/limit"
-        - name: active
-          in: query
-          schema: { type: boolean }
+      parameters: [{ $ref: "#/components/parameters/page" }, { $ref: "#/components/parameters/limit" }, { $ref: "#/components/parameters/active" }]
       responses:
-        "200":
-          description: Listado paginado
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: "#/components/schemas/Page"
-                  - type: object
-                    properties:
-                      items:
-                        type: array
-                        items: { $ref: "#/components/schemas/Category" }
-
+        "200": { description: Listado paginado, content: { application/json: { schema: { $ref: "#/components/schemas/CategoryPage" } } } }
   /categories/{id}:
     put:
       tags: [Categorías]
       summary: Editar o desactivar categoría — ADMIN, WAREHOUSE
+      parameters: [{ $ref: "#/components/parameters/id" }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, properties: { name: { type: string, maxLength: 80 }, active: { type: boolean } } } } } }
+      responses:
+        "200": { description: Actualizada, content: { application/json: { schema: { $ref: "#/components/schemas/Category" } } } }
+        "404": { description: "602", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+    delete:
+      tags: [Categorías]
+      summary: Eliminar categoría sin productos — ADMIN
+      parameters: [{ $ref: "#/components/parameters/id" }]
+      responses:
+        "204": { description: Eliminada }
+        "404": { description: "602", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+        "409": { description: "631 categoría con productos asociados", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+
+  # ------------------------------------------------------------ Productos e inventario
+  /products:
+    post:
+      tags: [Productos e inventario]
+      summary: Registrar producto (CU-05), nace con stock 0 — ADMIN, WAREHOUSE
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/CreateProduct" } } } }
+      responses:
+        "201": { description: Creado, content: { application/json: { schema: { $ref: "#/components/schemas/Product" } } } }
+        "404": { description: "602 categoría no encontrada", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+        "409": { description: "630 SKU duplicado", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+    get:
+      tags: [Productos e inventario]
+      summary: Listar productos con stock actual (RF-02.3) — autenticado
       parameters:
-        - $ref: "#/components/parameters/id"
+        - { $ref: "#/components/parameters/page" }
+        - { $ref: "#/components/parameters/limit" }
+        - { $ref: "#/components/parameters/active" }
+        - { name: category, in: query, schema: { type: integer }, description: Id de categoría }
+        - { name: search, in: query, schema: { type: string }, description: Busca en nombre y SKU }
+      responses:
+        "200": { description: Listado paginado, content: { application/json: { schema: { $ref: "#/components/schemas/ProductPage" } } } }
+  /products/{id}:
+    get:
+      tags: [Productos e inventario]
+      summary: Consultar producto — autenticado
+      parameters: [{ $ref: "#/components/parameters/id" }]
+      responses:
+        "200": { description: Producto, content: { application/json: { schema: { $ref: "#/components/schemas/Product" } } } }
+        "404": { description: "601", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+    put:
+      tags: [Productos e inventario]
+      summary: Editar producto — ADMIN, WAREHOUSE
+      parameters: [{ $ref: "#/components/parameters/id" }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/UpdateProduct" } } } }
+      responses:
+        "200": { description: Actualizado, content: { application/json: { schema: { $ref: "#/components/schemas/Product" } } } }
+        "404": { description: "601 · 602", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+        "409": { description: "630", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+    delete:
+      tags: [Productos e inventario]
+      summary: Desactivar producto (conserva histórico) — ADMIN
+      parameters: [{ $ref: "#/components/parameters/id" }]
+      responses:
+        "204": { description: Desactivado }
+        "404": { description: "601", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+  /products/{id}/batches:
+    post:
+      tags: [Productos e inventario]
+      summary: Registrar lote (CU-06), sube el stock — ADMIN, WAREHOUSE
+      parameters: [{ $ref: "#/components/parameters/id" }]
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
+              required: [quantity, expiresAt]
               properties:
-                name: { type: string, maxLength: 80 }
-                active: { type: boolean }
+                quantity: { type: integer, minimum: 1 }
+                expiresAt: { type: string, format: date, example: "2026-12-31" }
+                unitCost: { type: number, description: Por defecto el precio de compra del producto }
+                supplierId: { type: integer }
+      responses:
+        "201": { description: Lote creado, content: { application/json: { schema: { $ref: "#/components/schemas/ProductBatch" } } } }
+        "404": { description: "601 · 605 proveedor", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+        "409": { description: "625 producto inactivo", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+    get:
+      tags: [Productos e inventario]
+      summary: Lotes de un producto en orden FEFO — autenticado
+      parameters:
+        - { $ref: "#/components/parameters/id" }
+        - { $ref: "#/components/parameters/page" }
+        - { $ref: "#/components/parameters/limit" }
+        - { name: onlyAvailable, in: query, schema: { type: boolean }, description: Omite lotes agotados }
+      responses:
+        "200": { description: Listado paginado, content: { application/json: { schema: { $ref: "#/components/schemas/ProductBatchPage" } } } }
+  /batches/expiring:
+    get:
+      tags: [Productos e inventario]
+      summary: Lotes con existencias por vencer o vencidos (CU-07) — ADMIN, WAREHOUSE
+      parameters:
+        - { name: days, in: query, schema: { type: integer, default: 30 }, description: Ventana en días }
+        - { $ref: "#/components/parameters/page" }
+        - { $ref: "#/components/parameters/limit" }
+      responses:
+        "200": { description: Ordenados por vencimiento ascendente, content: { application/json: { schema: { $ref: "#/components/schemas/ProductBatchPage" } } } }
+
+  # ------------------------------------------------------------ Ventas
+  /sales:
+    post:
+      tags: [Ventas]
+      summary: Registrar venta (CU-09, CU-08 FEFO, CU-11 crédito) — ADMIN, SALES
+      description: |
+        El servidor congela el precio de venta vigente por línea, calcula el total, descuenta stock del lote
+        más próximo a vencer (no vencido) y, si es a crédito, valida el cupo y sube la cartera del cliente.
+        Todo ocurre en una transacción con bloqueo de fila: si algo falla no queda nada registrado.
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/CreateSale" } } } }
+      responses:
+        "201": { description: Venta registrada con su correlativo, content: { application/json: { schema: { $ref: "#/components/schemas/SaleDetail" } } } }
+        "400": { $ref: "#/components/responses/Validation" }
+        "404": { description: "601 producto · 604 cliente", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+        "409": { description: "620 stock insuficiente (details: productId, requested, available) · 621 cupo excedido · 625 · 626", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+    get:
+      tags: [Ventas]
+      summary: Consultar ventas (CU-10) — ADMIN, SALES
+      parameters:
+        - { $ref: "#/components/parameters/page" }
+        - { $ref: "#/components/parameters/limit" }
+        - { $ref: "#/components/parameters/from" }
+        - { $ref: "#/components/parameters/to" }
+        - { name: customerId, in: query, schema: { type: integer } }
+        - { name: userId, in: query, schema: { type: integer } }
+        - { name: status, in: query, schema: { type: string, enum: [COMPLETED, VOIDED] } }
+      responses:
+        "200": { description: Listado paginado (más recientes primero), content: { application/json: { schema: { $ref: "#/components/schemas/SalePage" } } } }
+  /sales/{id}:
+    get:
+      tags: [Ventas]
+      summary: Detalle de una venta con sus líneas — ADMIN, SALES
+      parameters: [{ $ref: "#/components/parameters/id" }]
+      responses:
+        "200": { description: Venta, content: { application/json: { schema: { $ref: "#/components/schemas/SaleDetail" } } } }
+        "404": { description: "606", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+  /sales/{id}/void:
+    post:
+      tags: [Ventas]
+      summary: Anular venta devolviendo el stock a sus lotes (RF-03.4) — ADMIN
+      parameters: [{ $ref: "#/components/parameters/id" }]
+      responses:
+        "200": { description: Venta con estado VOIDED, content: { application/json: { schema: { $ref: "#/components/schemas/SaleDetail" } } } }
+        "404": { description: "606", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+        "409": { description: "622 ya anulada", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+
+  # ------------------------------------------------------------ Clientes y cartera
+  /customers:
+    post:
+      tags: [Clientes y cartera]
+      summary: Crear cliente — ADMIN, SALES
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/CreateCustomer" } } } }
+      responses:
+        "201": { description: Creado, content: { application/json: { schema: { $ref: "#/components/schemas/Customer" } } } }
+        "409": { description: "630 documento duplicado", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+    get:
+      tags: [Clientes y cartera]
+      summary: Listar clientes — ADMIN, SALES
+      parameters:
+        - { $ref: "#/components/parameters/page" }
+        - { $ref: "#/components/parameters/limit" }
+        - { $ref: "#/components/parameters/active" }
+        - { name: search, in: query, schema: { type: string }, description: Busca en nombre y documento }
+        - { name: withBalance, in: query, schema: { type: boolean }, description: Solo clientes con saldo }
+      responses:
+        "200": { description: Listado paginado, content: { application/json: { schema: { $ref: "#/components/schemas/CustomerPage" } } } }
+  /customers/{id}:
+    get:
+      tags: [Clientes y cartera]
+      summary: Consultar cliente — ADMIN, SALES
+      parameters: [{ $ref: "#/components/parameters/id" }]
+      responses:
+        "200": { description: Cliente, content: { application/json: { schema: { $ref: "#/components/schemas/Customer" } } } }
+        "404": { description: "604", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+    put:
+      tags: [Clientes y cartera]
+      summary: Editar cliente (datos, cupo, estado) — ADMIN, SALES
+      parameters: [{ $ref: "#/components/parameters/id" }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/UpdateCustomer" } } } }
+      responses:
+        "200": { description: Actualizado, content: { application/json: { schema: { $ref: "#/components/schemas/Customer" } } } }
+        "404": { description: "604", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+  /customers/{id}/balance:
+    get:
+      tags: [Clientes y cartera]
+      summary: Saldo de cartera y cupo disponible (RF-04.4) — ADMIN, SALES
+      parameters:
+        - { $ref: "#/components/parameters/id" }
+        - { $ref: "#/components/parameters/overdueDays" }
+      responses:
+        "200": { description: Saldo, content: { application/json: { schema: { $ref: "#/components/schemas/CustomerBalance" } } } }
+        "404": { description: "604", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+  /customers/{id}/payments:
+    post:
+      tags: [Clientes y cartera]
+      summary: Registrar abono a cartera (CU-12) — ADMIN, SALES
+      parameters: [{ $ref: "#/components/parameters/id" }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [amount], properties: { amount: { type: number, exclusiveMinimum: 0 } } } } } }
+      responses:
+        "201": { description: Abono registrado, content: { application/json: { schema: { $ref: "#/components/schemas/CustomerPayment" } } } }
+        "409": { description: "623 abono mayor al saldo", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+
+  # ------------------------------------------------------------ Proveedores
+  /suppliers:
+    post:
+      tags: [Proveedores]
+      summary: Crear proveedor — ADMIN, WAREHOUSE
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/CreateSupplier" } } } }
+      responses:
+        "201": { description: Creado, content: { application/json: { schema: { $ref: "#/components/schemas/Supplier" } } } }
+    get:
+      tags: [Proveedores]
+      summary: Listar proveedores — autenticado
+      parameters: [{ $ref: "#/components/parameters/page" }, { $ref: "#/components/parameters/limit" }, { $ref: "#/components/parameters/active" }]
+      responses:
+        "200": { description: Listado paginado, content: { application/json: { schema: { $ref: "#/components/schemas/SupplierPage" } } } }
+  /suppliers/{id}:
+    put:
+      tags: [Proveedores]
+      summary: Editar proveedor — ADMIN, WAREHOUSE
+      parameters: [{ $ref: "#/components/parameters/id" }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/UpdateSupplier" } } } }
+      responses:
+        "200": { description: Actualizado, content: { application/json: { schema: { $ref: "#/components/schemas/Supplier" } } } }
+        "404": { description: "605", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+  /suppliers/{id}/purchases:
+    post:
+      tags: [Proveedores]
+      summary: Registrar compra (CU-13) = lote asociado al proveedor — ADMIN, WAREHOUSE
+      parameters: [{ $ref: "#/components/parameters/id" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [productId, quantity, unitCost, expiresAt]
+              properties:
+                productId: { type: integer }
+                quantity: { type: integer, minimum: 1 }
+                unitCost: { type: number, minimum: 0 }
+                expiresAt: { type: string, format: date }
+      responses:
+        "201": { description: Lote creado, content: { application/json: { schema: { $ref: "#/components/schemas/ProductBatch" } } } }
+        "404": { description: "605 proveedor · 601 producto", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+
+  # ------------------------------------------------------------ Finanzas
+  /financial/scenarios:
+    post:
+      tags: [Finanzas]
+      summary: Registrar y calcular escenario de inversión (CU-14) — ADMIN
+      description: |
+        Calcula con el mismo modelo del motor de cálculo en Python (capital de trabajo, flujos del proyecto y del
+        inversionista, VPN, TIR, payback simple y descontado, índice de rentabilidad, B/C) y guarda el resultado.
+        `assumptions` es opcional: cada campo ausente toma el valor del caso base del capítulo 5.
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/CreateScenario" } } } }
+      responses:
+        "201": { description: Escenario calculado, content: { application/json: { schema: { $ref: "#/components/schemas/ScenarioDetail" } } } }
+        "400": { $ref: "#/components/responses/Validation" }
+        "422": { description: "650 escenario inválido", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+    get:
+      tags: [Finanzas]
+      summary: Listar escenarios con sus indicadores — ADMIN
+      parameters: [{ $ref: "#/components/parameters/page" }, { $ref: "#/components/parameters/limit" }]
+      responses:
+        "200": { description: Listado paginado, content: { application/json: { schema: { $ref: "#/components/schemas/ScenarioPage" } } } }
+  /financial/scenarios/compare:
+    get:
+      tags: [Finanzas]
+      summary: Comparar escenarios lado a lado (CU-15, Tabla 7) — ADMIN
+      parameters:
+        - { name: ids, in: query, required: true, schema: { type: string, example: "1,2,3" }, description: Al menos dos ids separados por coma }
+      responses:
+        "200": { description: Indicadores de cada escenario en el orden pedido, content: { application/json: { schema: { type: object, properties: { scenarios: { type: array, items: { $ref: "#/components/schemas/ScenarioSummary" } } } } } } }
+        "404": { description: "607 (details.missing)", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+  /financial/scenarios/{id}:
+    get:
+      tags: [Finanzas]
+      summary: Detalle de un escenario (supuestos, flujos, indicadores) — ADMIN
+      parameters: [{ $ref: "#/components/parameters/id" }]
+      responses:
+        "200": { description: Escenario, content: { application/json: { schema: { $ref: "#/components/schemas/ScenarioDetail" } } } }
+        "404": { description: "607", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+  /financial/scenarios/{id}/amortization:
+    get:
+      tags: [Finanzas]
+      summary: Tabla de amortización mes a mes (CU-16) — ADMIN
+      parameters: [{ $ref: "#/components/parameters/id" }]
       responses:
         "200":
-          description: Categoría actualizada
+          description: Cuota, interés, abono y saldo por mes
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/Category" }
-        "404": { $ref: "#/components/responses/Error" }
-        "409": { $ref: "#/components/responses/Error" }
-    delete:
-      tags: [Categorías]
-      summary: Eliminar categoría sin productos — ADMIN
+              schema:
+                type: object
+                properties:
+                  scenarioId: { type: integer }
+                  credit: { type: number }
+                  termMonths: { type: integer }
+                  installment: { type: number }
+                  totalInterest: { type: number }
+                  rows: { type: array, items: { $ref: "#/components/schemas/AmortizationRow" } }
+  /financial/scenarios/{id}/sensitivity:
+    get:
+      tags: [Finanzas]
+      summary: Sensibilidad univariante VPN/TIR (CU-17, RF-06.5) — ADMIN
       parameters:
-        - $ref: "#/components/parameters/id"
+        - { $ref: "#/components/parameters/id" }
+        - { name: variable, in: query, required: true, schema: { $ref: "#/components/schemas/SensitivityVariable" } }
+        - { name: from, in: query, schema: { type: number }, description: Inicio del rango (los tres juntos o ninguno; por defecto el rango del capítulo 5) }
+        - { name: to, in: query, schema: { type: number } }
+        - { name: step, in: query, schema: { type: number } }
       responses:
-        "204": { description: Eliminada }
-        "404": { $ref: "#/components/responses/Error" }
-        "409": { description: "Categoría en uso (código 631)", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+        "200":
+          description: VPN y TIR por cada valor de la variable
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  scenarioId: { type: integer }
+                  variable: { $ref: "#/components/schemas/SensitivityVariable" }
+                  range: { $ref: "#/components/schemas/Range" }
+                  points: { type: array, items: { type: object, properties: { value: { type: number }, npv: { type: number }, irr: { type: [number, "null"] } } } }
+        "422": { description: "650 rango inválido", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+  /financial/scenarios/{id}/sensitivity/bivariate:
+    get:
+      tags: [Finanzas]
+      summary: Sensibilidad bivariante, grilla de VPN (RF-06.6) — ADMIN
+      parameters:
+        - { $ref: "#/components/parameters/id" }
+        - { name: varX, in: query, required: true, schema: { $ref: "#/components/schemas/SensitivityVariable" } }
+        - { name: varY, in: query, required: true, schema: { $ref: "#/components/schemas/SensitivityVariable" } }
+        - { name: fromX, in: query, schema: { type: number } }
+        - { name: toX, in: query, schema: { type: number } }
+        - { name: stepX, in: query, schema: { type: number } }
+        - { name: fromY, in: query, schema: { type: number } }
+        - { name: toY, in: query, schema: { type: number } }
+        - { name: stepY, in: query, schema: { type: number } }
+      responses:
+        "200":
+          description: "npv[y][x] para cada combinación"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  scenarioId: { type: integer }
+                  varX: { $ref: "#/components/schemas/SensitivityVariable" }
+                  varY: { $ref: "#/components/schemas/SensitivityVariable" }
+                  xValues: { type: array, items: { type: number } }
+                  yValues: { type: array, items: { type: number } }
+                  npv: { type: array, items: { type: array, items: { type: number } } }
+  /financial/scenarios/{id}/tornado:
+    get:
+      tags: [Finanzas]
+      summary: Diagrama de tornado, VPN a −20 %/+20 % por variable (RF-06.7) — ADMIN
+      parameters: [{ $ref: "#/components/parameters/id" }]
+      responses:
+        "200":
+          description: Barras ordenadas por amplitud de impacto descendente
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  scenarioId: { type: integer }
+                  delta: { type: number }
+                  baseNpv: { type: number }
+                  bars:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        variable: { type: string, enum: [grossMargin, salesIncrease, fixedInvestment, tmar, additionalExpensesMonth, inventoryTurnover, salvageValuePct, creditRateEA] }
+                        low: { type: number }
+                        high: { type: number }
+                        npvLow: { type: number }
+                        npvHigh: { type: number }
+                        amplitude: { type: number }
+
+  # ------------------------------------------------------------ Auditoría
+  /audits:
+    get:
+      tags: [Auditoría]
+      summary: Historial de escrituras (CU-18) — ADMIN
+      parameters:
+        - { $ref: "#/components/parameters/page" }
+        - { $ref: "#/components/parameters/limit" }
+        - { name: userId, in: query, schema: { type: integer } }
+        - { name: resource, in: query, schema: { type: string }, description: Coincidencia parcial en la ruta }
+        - { $ref: "#/components/parameters/from" }
+        - { $ref: "#/components/parameters/to" }
+      responses:
+        "200": { description: Listado paginado (más recientes primero), content: { application/json: { schema: { $ref: "#/components/schemas/AuditPage" } } } }
+
+  # ------------------------------------------------------------ Reportes
+  /reports/sales:
+    get:
+      tags: [Reportes]
+      summary: Ventas por día o por producto (CU-19) — ADMIN, SALES
+      parameters:
+        - { $ref: "#/components/parameters/from" }
+        - { $ref: "#/components/parameters/to" }
+        - { name: groupBy, in: query, schema: { type: string, enum: [day, product], default: day } }
+      responses:
+        "200":
+          description: Por defecto los últimos 30 días. Solo ventas no anuladas, agregadas en la base.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  from: { type: string, format: date }
+                  to: { type: string, format: date }
+                  groupBy: { type: string }
+                  salesCount: { type: integer }
+                  units: { type: integer }
+                  total: { type: number }
+                  cashTotal: { type: number }
+                  creditTotal: { type: number }
+                  rows:
+                    type: array
+                    items:
+                      oneOf:
+                        - { type: object, properties: { date: { type: string }, salesCount: { type: integer }, units: { type: integer }, total: { type: number } } }
+                        - { type: object, properties: { productId: { type: integer }, productName: { type: string }, sku: { type: string }, salesCount: { type: integer }, units: { type: integer }, total: { type: number } } }
+  /reports/inventory:
+    get:
+      tags: [Reportes]
+      summary: Inventario valorizado y lotes por vencer (CU-20) — ADMIN
+      parameters:
+        - { name: days, in: query, schema: { type: integer, default: 30 }, description: Ventana de "por vencer" }
+      responses:
+        "200":
+          description: Totales y desglose por categoría
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  asOf: { type: string, format: date }
+                  expiringDays: { type: integer }
+                  products: { type: integer }
+                  activeProducts: { type: integer }
+                  units: { type: integer }
+                  costValue: { type: number, description: Unidades restantes por lote × costo unitario }
+                  saleValue: { type: number, description: Stock × precio de venta vigente }
+                  outOfStock: { type: integer }
+                  expiringSoon: { $ref: "#/components/schemas/BatchAggregate" }
+                  expired: { $ref: "#/components/schemas/BatchAggregate" }
+                  byCategory:
+                    type: array
+                    items: { type: object, properties: { categoryId: { type: integer }, categoryName: { type: string }, products: { type: integer }, units: { type: integer }, costValue: { type: number }, saleValue: { type: number } } }
+  /reports/receivables:
+    get:
+      tags: [Reportes]
+      summary: Cartera por cliente y cartera vencida (CU-20) — ADMIN
+      parameters: [{ $ref: "#/components/parameters/overdueDays" }]
+      responses:
+        "200":
+          description: Clientes con saldo, ordenados por saldo descendente
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  overdueDays: { type: integer }
+                  customersWithBalance: { type: integer }
+                  totalBalance: { type: number }
+                  overdueCustomers: { type: integer }
+                  overdueBalance: { type: number }
+                  items:
+                    type: array
+                    items: { type: object, properties: { customerId: { type: integer }, name: { type: string }, creditLimit: { type: number }, balance: { type: number }, lastCreditSaleAt: { type: [string, "null"] }, lastPaymentAt: { type: [string, "null"] }, overdue: { type: boolean } } }
 
 components:
   securitySchemes:
-    bearerAuth:
-      type: http
-      scheme: bearer
-      bearerFormat: JWT
+    bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }
   parameters:
-    id:
-      name: id
-      in: path
-      required: true
-      schema: { type: integer, minimum: 1 }
-    page:
-      name: page
-      in: query
-      schema: { type: integer, minimum: 1, default: 1 }
-    limit:
-      name: limit
-      in: query
-      schema: { type: integer, minimum: 1, maximum: 100, default: 10 }
+    id: { name: id, in: path, required: true, schema: { type: integer, minimum: 1 } }
+    page: { name: page, in: query, schema: { type: integer, minimum: 1, default: 1 } }
+    limit: { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 10 } }
+    active: { name: active, in: query, schema: { type: boolean } }
+    from: { name: from, in: query, schema: { type: string, format: date }, description: Fecha inicial inclusive (YYYY-MM-DD) }
+    to: { name: to, in: query, schema: { type: string, format: date }, description: Fecha final inclusive (YYYY-MM-DD) }
+    overdueDays: { name: overdueDays, in: query, schema: { type: integer, default: 30 }, description: "Cartera vencida: saldo > 0 y última venta a crédito con más de estos días" }
   responses:
-    Error:
-      description: Error de dominio
-      content:
-        application/json:
-          schema: { $ref: "#/components/schemas/ErrorBody" }
     Validation:
       description: Datos de entrada mal formados (código 400)
       content:
         application/json:
           schema:
             allOf:
-              - $ref: "#/components/schemas/ErrorBody"
-              - type: object
-                properties:
-                  details:
-                    type: array
-                    items:
-                      type: object
-                      properties:
-                        path: { type: string }
-                        message: { type: string }
+              - { $ref: "#/components/schemas/ErrorBody" }
+              - { type: object, properties: { details: { type: array, items: { type: object, properties: { path: { type: string }, message: { type: string } } } } } }
+    Unauthorized:
+      description: "611 token ausente o inválido · 612 usuario inactivo"
+      content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } }
+    Forbidden:
+      description: "613 rol insuficiente (details.requiredRoles)"
+      content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } }
   schemas:
     ErrorBody:
       type: object
       required: [message]
       properties:
-        message:
-          type: string
-          description: Código de dominio (ver README, tabla de códigos)
-          example: "610"
+        message: { type: string, description: Código de dominio (ver README), example: "610" }
+        details: { description: Información adicional según el código }
     Page:
       type: object
       required: [count, page, pages, items]
@@ -270,9 +651,7 @@ components:
         page: { type: integer }
         pages: { type: integer }
         items: { type: array, items: {} }
-    Role:
-      type: string
-      enum: [ADMIN, SALES, WAREHOUSE]
+    Role: { type: string, enum: [ADMIN, SALES, WAREHOUSE] }
     User:
       type: object
       properties:
@@ -283,6 +662,7 @@ components:
         role: { $ref: "#/components/schemas/Role" }
         active: { type: boolean }
         createdAt: { type: string, format: date-time }
+    UserPage: { allOf: [{ $ref: "#/components/schemas/Page" }, { type: object, properties: { items: { type: array, items: { $ref: "#/components/schemas/User" } } } }] }
     CreateUser:
       type: object
       required: [firstName, lastName, username, password, role]
@@ -299,6 +679,298 @@ components:
         name: { type: string }
         active: { type: boolean }
         createdAt: { type: string, format: date-time }
+    CategoryPage: { allOf: [{ $ref: "#/components/schemas/Page" }, { type: object, properties: { items: { type: array, items: { $ref: "#/components/schemas/Category" } } } }] }
+    Product:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        sku: { type: string }
+        categoryId: { type: integer }
+        categoryName: { type: string }
+        purchasePrice: { type: number }
+        salePrice: { type: number }
+        stock: { type: integer }
+        active: { type: boolean }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    ProductPage: { allOf: [{ $ref: "#/components/schemas/Page" }, { type: object, properties: { items: { type: array, items: { $ref: "#/components/schemas/Product" } } } }] }
+    CreateProduct:
+      type: object
+      required: [name, sku, categoryId, purchasePrice, salePrice]
+      properties:
+        name: { type: string, maxLength: 120 }
+        sku: { type: string, maxLength: 40 }
+        categoryId: { type: integer }
+        purchasePrice: { type: number, minimum: 0, description: Máximo 2 decimales }
+        salePrice: { type: number, minimum: 0 }
+    UpdateProduct:
+      type: object
+      properties:
+        name: { type: string }
+        sku: { type: string }
+        categoryId: { type: integer }
+        purchasePrice: { type: number }
+        salePrice: { type: number }
+        active: { type: boolean }
+    ProductBatch:
+      type: object
+      properties:
+        id: { type: integer }
+        productId: { type: integer }
+        productName: { type: string }
+        supplierId: { type: [integer, "null"] }
+        supplierName: { type: [string, "null"] }
+        quantity: { type: integer }
+        quantityRemaining: { type: integer }
+        unitCost: { type: number }
+        expiresAt: { type: string, format: date }
+        expired: { type: boolean }
+        daysToExpire: { type: integer }
+        createdAt: { type: string, format: date-time }
+    ProductBatchPage: { allOf: [{ $ref: "#/components/schemas/Page" }, { type: object, properties: { items: { type: array, items: { $ref: "#/components/schemas/ProductBatch" } } } }] }
+    BatchAggregate:
+      type: object
+      properties:
+        batches: { type: integer }
+        units: { type: integer }
+        costValue: { type: number }
+    Supplier:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        taxId: { type: [string, "null"] }
+        phone: { type: [string, "null"] }
+        active: { type: boolean }
+        createdAt: { type: string, format: date-time }
+    SupplierPage: { allOf: [{ $ref: "#/components/schemas/Page" }, { type: object, properties: { items: { type: array, items: { $ref: "#/components/schemas/Supplier" } } } }] }
+    CreateSupplier:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, maxLength: 120 }
+        taxId: { type: string, maxLength: 30 }
+        phone: { type: string, maxLength: 30 }
+    UpdateSupplier:
+      type: object
+      properties:
+        name: { type: string }
+        taxId: { type: [string, "null"], description: null borra el dato }
+        phone: { type: [string, "null"] }
+        active: { type: boolean }
+    Customer:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        documentId: { type: string }
+        phone: { type: [string, "null"] }
+        creditLimit: { type: number }
+        balance: { type: number, description: Cartera vigente }
+        availableCredit: { type: number }
+        active: { type: boolean }
+        createdAt: { type: string, format: date-time }
+    CustomerPage: { allOf: [{ $ref: "#/components/schemas/Page" }, { type: object, properties: { items: { type: array, items: { $ref: "#/components/schemas/Customer" } } } }] }
+    CreateCustomer:
+      type: object
+      required: [name, documentId]
+      properties:
+        name: { type: string, maxLength: 120 }
+        documentId: { type: string, minLength: 3, maxLength: 30 }
+        phone: { type: string, maxLength: 30 }
+        creditLimit: { type: number, minimum: 0, default: 0 }
+    UpdateCustomer:
+      type: object
+      properties:
+        name: { type: string }
+        documentId: { type: string }
+        phone: { type: [string, "null"] }
+        creditLimit: { type: number }
+        active: { type: boolean }
+    CustomerBalance:
+      type: object
+      properties:
+        customerId: { type: integer }
+        name: { type: string }
+        creditLimit: { type: number }
+        balance: { type: number }
+        availableCredit: { type: number }
+        lastCreditSaleAt: { type: [string, "null"], format: date-time }
+        lastPaymentAt: { type: [string, "null"], format: date-time }
+        overdue: { type: boolean }
+        overdueDays: { type: integer }
+    CustomerPayment:
+      type: object
+      properties:
+        id: { type: integer }
+        customerId: { type: integer }
+        userId: { type: integer }
+        amount: { type: number }
+        balanceAfter: { type: number }
+        createdAt: { type: string, format: date-time }
+    CreateSale:
+      type: object
+      required: [lines]
+      properties:
+        customerId: { type: integer, description: Opcional en contado, obligatorio en crédito }
+        paymentType: { type: string, enum: [CASH, CREDIT], default: CASH }
+        lines:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [productId, quantity]
+            properties:
+              productId: { type: integer }
+              quantity: { type: integer, minimum: 1 }
+    Sale:
+      type: object
+      properties:
+        id: { type: integer }
+        invoiceNumber: { type: string, example: FV-2026-000001 }
+        customerId: { type: [integer, "null"] }
+        customerName: { type: [string, "null"] }
+        userId: { type: integer }
+        username: { type: string }
+        paymentType: { type: string, enum: [CASH, CREDIT] }
+        total: { type: number }
+        status: { type: string, enum: [COMPLETED, VOIDED] }
+        voidedAt: { type: [string, "null"], format: date-time }
+        voidedBy: { type: [integer, "null"] }
+        createdAt: { type: string, format: date-time }
+    SaleLine:
+      type: object
+      properties:
+        id: { type: integer }
+        productId: { type: integer }
+        productName: { type: string }
+        sku: { type: string }
+        quantity: { type: integer }
+        unitPrice: { type: number, description: Precio congelado al momento de la venta }
+        lineTotal: { type: number }
+    SaleDetail: { allOf: [{ $ref: "#/components/schemas/Sale" }, { type: object, properties: { lines: { type: array, items: { $ref: "#/components/schemas/SaleLine" } } } }] }
+    SalePage: { allOf: [{ $ref: "#/components/schemas/Page" }, { type: object, properties: { items: { type: array, items: { $ref: "#/components/schemas/Sale" } } } }] }
+    Audit:
+      type: object
+      properties:
+        id: { type: integer }
+        userId: { type: integer }
+        username: { type: string }
+        method: { type: string }
+        resource: { type: string }
+        createdAt: { type: string, format: date-time }
+    AuditPage: { allOf: [{ $ref: "#/components/schemas/Page" }, { type: object, properties: { items: { type: array, items: { $ref: "#/components/schemas/Audit" } } } }] }
+    SensitivityVariable: { type: string, enum: [salesIncrease, inventoryTurnover, tmar] }
+    Range:
+      type: object
+      properties:
+        from: { type: number }
+        to: { type: number }
+        step: { type: number }
+    Assumptions:
+      type: object
+      description: Supuestos base (Tabla 1 del capítulo 5). Todos opcionales al crear; se muestran completos al consultar.
+      properties:
+        monthlySales: { type: number, example: 65000000 }
+        costOfSalesPct: { type: number, example: 0.75 }
+        fixedExpensesMonth: { type: number, example: 8500000 }
+        baseSalesGrowth: { type: number, example: 0.03 }
+        constructionInvestment: { type: number, example: 60000000 }
+        equipmentInvestment: { type: number, example: 15000000 }
+        salesIncreasePct: { type: number, example: 0.2 }
+        additionalFixedExpensesMonth: { type: number, example: 1000000 }
+        inventoryTurnover: { type: number, example: 6 }
+        creditRateEA: { type: number, example: 0.21 }
+        termMonths: { type: integer, example: 48 }
+        tmarEA: { type: number, example: 0.18 }
+        investorRateEA: { type: number, example: 0.18 }
+        horizonYears: { type: integer, example: 5 }
+        inflation: { type: number, example: 0.05 }
+        salvageValuePct: { type: number, example: 0.3 }
+        ownerWithdrawalsMonth: { type: number, example: 0 }
+    CreateScenario:
+      type: object
+      required: [name, fixedInvestment, creditPct, termMonths, salesIncrease, additionalExpensesMonth]
+      properties:
+        name: { type: string, maxLength: 160, example: "A. Ampliación completa, crédito 100 % a 48 meses" }
+        fixedInvestment: { type: number, example: 75000000 }
+        creditPct: { type: number, minimum: 0, maximum: 1, example: 1 }
+        termMonths: { type: integer, example: 48 }
+        salesIncrease: { type: number, example: 0.2 }
+        additionalExpensesMonth: { type: number, example: 1000000 }
+        creditCoversWorkingCapital: { type: boolean, default: false }
+        assumptions: { $ref: "#/components/schemas/Assumptions" }
+    ScenarioIndicators:
+      type: object
+      properties:
+        workingCapital: { type: number }
+        totalInvestment: { type: number }
+        credit: { type: number }
+        ownContribution: { type: number }
+        installment: { type: number }
+        totalInterest: { type: number }
+        npv: { type: number }
+        irr: { type: [number, "null"] }
+        paybackSimple: { type: [number, "null"] }
+        paybackDiscounted: { type: [number, "null"] }
+        profitabilityIndex: { type: number }
+        benefitCostRatio: { type: number }
+        investorNpv: { type: number }
+        investorIrr: { type: [number, "null"] }
+        coverageWithSales: { type: [number, "null"] }
+        coverageWithoutSales: { type: [number, "null"] }
+        coverageIncremental: { type: [number, "null"] }
+        signChanges: { type: integer }
+    ScenarioSummary:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        userId: { type: integer }
+        username: { type: string }
+        fixedInvestment: { type: number }
+        creditPct: { type: number }
+        termMonths: { type: integer }
+        salesIncrease: { type: number }
+        additionalExpensesMonth: { type: number }
+        creditCoversWorkingCapital: { type: boolean }
+        indicators: { $ref: "#/components/schemas/ScenarioIndicators" }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    ScenarioPage: { allOf: [{ $ref: "#/components/schemas/Page" }, { type: object, properties: { items: { type: array, items: { $ref: "#/components/schemas/ScenarioSummary" } } } }] }
+    CashFlowDetail:
+      type: object
+      properties:
+        year: { type: integer }
+        margin: { type: number }
+        expenses: { type: number, description: Negativo }
+        workingCapitalDelta: { type: number }
+        salvage: { type: number }
+        workingCapitalRecovery: { type: number }
+        flow: { type: number }
+    ScenarioDetail:
+      allOf:
+        - { $ref: "#/components/schemas/ScenarioSummary" }
+        - type: object
+          properties:
+            assumptions: { $ref: "#/components/schemas/Assumptions" }
+            results:
+              type: object
+              description: Resultado completo del motor (sin la tabla de amortización, que tiene su propio endpoint)
+              properties:
+                flows: { type: array, items: { type: number }, description: "Flujo del proyecto, año 0..H" }
+                investorFlows: { type: array, items: { type: number } }
+                debtService: { type: array, items: { type: number } }
+                detail: { type: array, items: { $ref: "#/components/schemas/CashFlowDetail" } }
+    AmortizationRow:
+      type: object
+      properties:
+        month: { type: integer }
+        installment: { type: number }
+        interest: { type: number }
+        principal: { type: number }
+        balance: { type: number }
 
 security:
   - bearerAuth: []

@@ -1,5 +1,5 @@
 import type { ErrorRequestHandler, RequestHandler } from "express";
-import { ErrorCodes, isDomainError } from "../common/index.js";
+import { ErrorCodes, isDomainError } from "../common/index";
 
 /** Ruta inexistente: se responde con el mismo contrato de error que el resto. */
 export const notFoundHandler: RequestHandler = (_req, res) => {

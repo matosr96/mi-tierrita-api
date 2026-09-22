@@ -1,3 +1,4 @@
-export * from "./errors.js";
-export * from "./pagination.js";
-export * from "./validate.js";
+export * from "./errors";
+export * from "./pagination";
+export * from "./validate";
+export * from "./dates";

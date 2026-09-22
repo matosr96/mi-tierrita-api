@@ -1,6 +1,6 @@
-import { config } from "./config.js";
-import { createApp } from "./app.js";
-import { db } from "../data-sources/index.js";
+import { config } from "./config";
+import { createApp } from "./app";
+import { db } from "../data-sources/index";
 
 const main = async () => {
   await db.ping();

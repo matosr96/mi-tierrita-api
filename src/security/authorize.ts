@@ -1,7 +1,7 @@
 import type { RequestHandler } from "express";
-import { ErrorCodes, domainError } from "../common/index.js";
-import { requireAuth } from "./authenticate.js";
-import type { Role } from "./roles.js";
+import { ErrorCodes, domainError } from "../common/index";
+import { requireAuth } from "./authenticate";
+import type { Role } from "./roles";
 
 /**
  * Matriz de autorización (documento 01, sección 5): decide qué rol puede usar cada

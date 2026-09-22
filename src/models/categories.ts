@@ -1,18 +1,8 @@
-import { z } from "zod";
+import { createValidator } from "../common/validate";
 
-export type CategoryRow = {
-  id: number;
-  name: string;
-  active: boolean;
-  createdAt: Date;
-};
+export type CategoryRow = { id: number; name: string; active: boolean; createdAt: Date };
 
-export type CategoryResponse = {
-  id: number;
-  name: string;
-  active: boolean;
-  createdAt: string;
-};
+export type CategoryResponse = { id: number; name: string; active: boolean; createdAt: string };
 
 export const toCategoryResponse = (row: CategoryRow): CategoryResponse => ({
   id: row.id,
@@ -21,15 +11,22 @@ export const toCategoryResponse = (row: CategoryRow): CategoryResponse => ({
   createdAt: row.createdAt.toISOString(),
 });
 
-export const createCategorySchema = z.object({
-  name: z.string().trim().min(1).max(80),
-});
-export type CreateCategoryRequest = z.infer<typeof createCategorySchema>;
+export type CreateCategoryRequest = { name: string };
 
-export const updateCategorySchema = z.object({
-  name: z.string().trim().min(1).max(80).optional(),
-  active: z.boolean().optional(),
-}).refine((value) => value.name !== undefined || value.active !== undefined, {
-  message: "Debe enviar al menos un campo a modificar",
-});
-export type UpdateCategoryRequest = z.infer<typeof updateCategorySchema>;
+export const parseCreateCategory = (body: unknown): CreateCategoryRequest => {
+  const v = createValidator(body);
+  const name = v.string("name", { min: 1, max: 80 });
+  v.done();
+  return { name: name! };
+};
+
+export type UpdateCategoryRequest = { name?: string | undefined; active?: boolean | undefined };
+
+export const parseUpdateCategory = (body: unknown): UpdateCategoryRequest => {
+  const v = createValidator(body);
+  const name = v.string("name", { min: 1, max: 80 }, false);
+  const active = v.boolean("active", false);
+  if (name === undefined && active === undefined) v.custom("body", "Debe enviar al menos un campo a modificar");
+  v.done();
+  return { name, active };
+};

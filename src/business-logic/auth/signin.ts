@@ -1,11 +1,11 @@
-import { ErrorCodes, domainError } from "../../common/index.js";
-import { usersDataSource } from "../../data-sources/index.js";
-import { signAccessToken, verifyPassword } from "../../security/index.js";
-import { toUserResponse, type SigninRequest, type SigninResponse } from "../../models/index.js";
+import { ErrorCodes, domainError } from "../../common/index";
+import { signAccessToken, verifyPassword } from "../../security/index";
+import { toUserResponse, type SigninRequest, type SigninResponse } from "../../models/index";
+import { findUserByUsername } from "../users/find-user";
 
 /** CU-01 Iniciar sesión: valida contra el hash guardado y emite un token de acceso. */
 export const signin = async (input: SigninRequest): Promise<SigninResponse> => {
-  const user = await usersDataSource.findByUsername(input.username);
+  const user = await findUserByUsername(input.username);
   // Se compara siempre contra un hash para no revelar por tiempo si el usuario existe
   const hash = user?.passwordHash ?? "$2b$10$invalidinvalidinvalidinvalidinvalidinvalidinvalidinvalid";
   const ok = await verifyPassword(input.password, hash);

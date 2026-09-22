@@ -1,8 +1,8 @@
 import type { Request, RequestHandler } from "express";
-import { ErrorCodes, domainError } from "../common/index.js";
-import { usersDataSource } from "../data-sources/index.js";
-import { verifyAccessToken } from "./token.js";
-import type { Role } from "./roles.js";
+import { ErrorCodes, domainError } from "../common/index";
+import { findUserById } from "../business-logic/users/find-user";
+import { verifyAccessToken } from "./token";
+import type { Role } from "./roles";
 
 /** Identidad del usuario que hace la petición, disponible para todas las capas. */
 export type AuthContext = {
@@ -40,7 +40,7 @@ export const authenticate: RequestHandler = async (req, _res, next) => {
   const userId = Number(payload.sub);
   if (!Number.isInteger(userId)) throw domainError(ErrorCodes.TOKEN_INVALID);
 
-  const user = await usersDataSource.findById(userId);
+  const user = await findUserById(userId);
   if (user === undefined || user.tokenVersion !== payload.tv) throw domainError(ErrorCodes.TOKEN_INVALID);
   if (!user.active) throw domainError(ErrorCodes.USER_INACTIVE);
 

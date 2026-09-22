@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { DomainError, ErrorCodes, domainError, httpStatusByCode, isDomainError } from "../src/common/errors.js";
+import { DomainError, ErrorCodes, domainError, httpStatusByCode, isDomainError } from "../src/common/errors";
 
 test("cada código de dominio tiene un estado HTTP y viaja como message", () => {
   for (const code of Object.values(ErrorCodes)) {

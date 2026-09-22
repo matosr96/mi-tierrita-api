@@ -1,10 +1,18 @@
-import { ErrorCodes, domainError } from "../../common/index.js";
-import { categoriesDataSource, isUniqueViolation } from "../../data-sources/index.js";
-import { toCategoryResponse, type CategoryResponse, type UpdateCategoryRequest } from "../../models/index.js";
+import { ErrorCodes, domainError } from "../../common/index";
+import { db, isUniqueViolation } from "../../data-sources/index";
+import { toCategoryResponse, type CategoryResponse, type CategoryRow, type UpdateCategoryRequest } from "../../models/index";
+import { CATEGORY_COLUMNS } from "./find-category";
 
 export const updateCategory = async (id: number, input: UpdateCategoryRequest): Promise<CategoryResponse> => {
   try {
-    const updated = await categoriesDataSource.update(id, input);
+    const { rows } = await db.query<CategoryRow>(
+      `UPDATE categories
+         SET name = COALESCE($2, name), active = COALESCE($3, active)
+       WHERE id = $1
+       RETURNING ${CATEGORY_COLUMNS}`,
+      [id, input.name ?? null, input.active ?? null],
+    );
+    const updated = rows[0];
     if (updated === undefined) throw domainError(ErrorCodes.CATEGORY_NOT_FOUND);
     return toCategoryResponse(updated);
   } catch (err) {

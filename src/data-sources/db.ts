@@ -1,5 +1,5 @@
 import pg from "pg";
-import { config } from "../server/config.js";
+import { config } from "../server/config";
 
 /**
  * Única puerta hacia PostgreSQL. Cliente SQL directo (sin ORM): el equipo controla
@@ -12,6 +12,8 @@ const { Pool, types } = pg;
 types.setTypeParser(1700, (value: string) => Number(value));
 // BIGINT (oid 20): los ids son bigint pero caben en un number seguro de JS.
 types.setTypeParser(20, (value: string) => Number(value));
+// DATE (oid 1082): se maneja como texto YYYY-MM-DD, sin zona horaria.
+types.setTypeParser(1082, (value: string) => value);
 
 const pool = new Pool({
   host: config.db.host,

@@ -1,10 +1,10 @@
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
-import { config } from "./config.js";
-import { errorHandler, notFoundHandler } from "./error-handler.js";
-import { auditMiddleware } from "./audit.js";
-import { apiRouter, docsRouter, healthRouter } from "../routes/index.js";
+import { config } from "./config";
+import { errorHandler, notFoundHandler } from "./error-handler";
+import { auditMiddleware } from "./audit";
+import { apiRouter, docsRouter, healthRouter } from "../routes/index";
 
 /** Arma la aplicación Express con los componentes transversales y las rutas. */
 export const createApp = () => {

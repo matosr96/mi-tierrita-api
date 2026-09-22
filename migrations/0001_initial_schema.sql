@@ -62,9 +62,9 @@ CREATE TABLE products (
   stock          INTEGER       NOT NULL DEFAULT 0 CHECK (stock >= 0),
   active         BOOLEAN       NOT NULL DEFAULT TRUE,
   created_at     TIMESTAMPTZ   NOT NULL DEFAULT now(),
-  updated_at     TIMESTAMPTZ   NOT NULL DEFAULT now(),
-  UNIQUE (sku)
+  updated_at     TIMESTAMPTZ   NOT NULL DEFAULT now()
 );
+CREATE UNIQUE INDEX products_sku_unique ON products (lower(sku));
 CREATE INDEX products_category_id_idx ON products (category_id);
 
 -- Lotes con vencimiento: base del FEFO (RF-02.6 / CU-08)

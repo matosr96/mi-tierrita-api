@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parsePageRequest, toPageResponse, DEFAULT_LIMIT, MAX_LIMIT } from "../src/common/pagination.js";
+import { parsePageRequest, toPageResponse, DEFAULT_LIMIT, MAX_LIMIT } from "../src/common/pagination";
 
 test("page y limit por defecto", () => {
   assert.deepEqual(parsePageRequest({}), { page: 1, limit: DEFAULT_LIMIT, offset: 0 });
