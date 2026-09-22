@@ -16,11 +16,7 @@ types.setTypeParser(20, (value: string) => Number(value));
 types.setTypeParser(1082, (value: string) => value);
 
 const pool = new Pool({
-  host: config.db.host,
-  port: config.db.port,
-  database: config.db.database,
-  user: config.db.user,
-  password: config.db.password,
+  ...config.db,
   max: 10,
   idleTimeoutMillis: 30_000,
 });

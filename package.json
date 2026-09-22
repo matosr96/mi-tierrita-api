@@ -14,6 +14,7 @@
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --test \"tests/**/*.test.ts\"",
     "db:migrate": "tsx src/scripts/migrate.ts apply",
+    "db:migrate:prod": "node build/scripts/migrate.js apply",
     "db:status": "tsx src/scripts/migrate.ts status",
     "create-admin": "tsx src/scripts/create-admin.ts"
   },

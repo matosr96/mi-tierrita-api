@@ -50,7 +50,9 @@ Ningún valor sensible va en el código ni en la imagen. Ver [.env.example](.env
 | Variable | Propósito |
 |---|---|
 | `PORT` | Puerto donde escucha el proceso (4300) |
-| `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` | Conexión a PostgreSQL |
+| `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` | Conexión a PostgreSQL en local |
+| `DATABASE_URL` | Cadena única del Postgres gestionado; si está, sustituye a las cinco anteriores |
+| `DB_SSL` | TLS de la conexión: `disable`, `require` o `verify` |
 | `JWT_SECRET` | Firma de los tokens; mínimo 32 caracteres, sin valor por defecto |
 | `JWT_EXPIRES_IN` | Vigencia del token (`8h`) |
 | `CORS_ORIGINS` | Dominios del frontend permitidos, separados por coma |
