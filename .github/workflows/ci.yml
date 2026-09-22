@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  verificar:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: mi_tierrita_test
+          POSTGRES_USER: mi_tierrita
+          POSTGRES_PASSWORD: mi_tierrita
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U mi_tierrita"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      DB_HOST: localhost
+      DB_PORT: "5432"
+      DB_NAME: mi_tierrita_test
+      DB_USER: mi_tierrita
+      DB_PASSWORD: mi_tierrita
+      JWT_SECRET: secreto-de-ci-solo-para-pruebas-de-32-chars
+      CORS_ORIGINS: http://localhost:5173
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm db:migrate
+      - run: pnpm build
+      - name: Construir imagen de contenedor
+        run: docker build -t mi-tierrita-api:ci .

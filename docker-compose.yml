@@ -1,0 +1,39 @@
+# Entorno local: la API y PostgreSQL 16 en contenedores.
+# Solo la base de datos:  docker compose up -d db
+# Todo:                   docker compose up --build
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: mi_tierrita
+      POSTGRES_USER: mi_tierrita
+      POSTGRES_PASSWORD: mi_tierrita
+    ports:
+      - "5433:5432"
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mi_tierrita -d mi_tierrita"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PORT: 4300
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_NAME: mi_tierrita
+      DB_USER: mi_tierrita
+      DB_PASSWORD: mi_tierrita
+      JWT_SECRET: secreto-solo-para-docker-compose-local-32-chars
+      CORS_ORIGINS: http://localhost:5173
+    ports:
+      - "4300:4300"
+
+volumes:
+  db-data:

@@ -1,0 +1,53 @@
+{
+  "name": "mi-tierrita-api",
+  "version": "0.1.0",
+  "description": "Backend REST de Mi Tierrita SIG: inventario con lotes y vencimientos, punto de venta, cartera, proveedores, usuarios, auditoría, reportes y evaluación financiera",
+  "private": true,
+  "license": "UNLICENSED",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "tsx watch src/server/index.ts",
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node build/server/index.js",
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test \"tests/**/*.test.ts\"",
+    "db:migrate": "tsx src/scripts/migrate.ts apply",
+    "db:status": "tsx src/scripts/migrate.ts status",
+    "create-admin": "tsx src/scripts/create-admin.ts"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^5.1.0",
+    "express-rate-limit": "^8.1.0",
+    "helmet": "^8.1.0",
+    "jsonwebtoken": "^9.0.3",
+    "pg": "^8.16.3",
+    "swagger-ui-express": "^5.0.1",
+    "yaml": "^2.8.1",
+    "zod": "^4.1.11"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.3",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/node": "^22.18.6",
+    "@types/pg": "^8.15.5",
+    "@types/swagger-ui-express": "^4.1.8",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2"
+  },
+  "packageManager": "pnpm@10.34.5",
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ],
+    "ignoredBuiltDependencies": [
+      "@scarf/scarf"
+    ]
+  }
+}

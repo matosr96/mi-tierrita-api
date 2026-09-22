@@ -1,0 +1,304 @@
+openapi: 3.1.0
+info:
+  title: Mi Tierrita API
+  version: 0.1.0
+  description: |
+    Backend REST de Mi Tierrita SIG. Todas las rutas van bajo `/api/v1`.
+    Los listados responden `{ count, page, pages, items }` y los errores `{ "message": "<código>" }`.
+    Aquí solo se documentan los endpoints ya implementados; el catálogo completo está en
+    el documento 06 (Diseño de la API) y se irá agregando a este esquema módulo por módulo.
+servers:
+  - url: /api/v1
+tags:
+  - name: Autenticación
+  - name: Usuarios
+  - name: Categorías
+  - name: Sistema
+
+paths:
+  /auth/signin:
+    post:
+      tags: [Autenticación]
+      summary: Iniciar sesión (CU-01)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password]
+              properties:
+                username: { type: string, example: admin }
+                password: { type: string, format: password }
+      responses:
+        "200":
+          description: Token de acceso y datos básicos del usuario
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token: { type: string }
+                  user: { $ref: "#/components/schemas/User" }
+        "400": { $ref: "#/components/responses/Validation" }
+        "401": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/Error" }
+
+  /auth/signout:
+    post:
+      tags: [Autenticación]
+      summary: Cerrar sesión e invalidar todos los tokens vigentes (CU-02)
+      responses:
+        "204": { description: Sesión cerrada }
+        "401": { $ref: "#/components/responses/Error" }
+
+  /auth/me:
+    get:
+      tags: [Autenticación]
+      summary: Usuario autenticado
+      responses:
+        "200":
+          description: Datos del usuario
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "401": { $ref: "#/components/responses/Error" }
+
+  /users:
+    post:
+      tags: [Usuarios]
+      summary: Crear usuario (CU-03) — ADMIN
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateUser" }
+      responses:
+        "201":
+          description: Usuario creado
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "400": { $ref: "#/components/responses/Validation" }
+        "403": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+    get:
+      tags: [Usuarios]
+      summary: Listar usuarios — ADMIN
+      parameters:
+        - $ref: "#/components/parameters/page"
+        - $ref: "#/components/parameters/limit"
+      responses:
+        "200":
+          description: Listado paginado
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Page"
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: "#/components/schemas/User" }
+
+  /users/{id}:
+    get:
+      tags: [Usuarios]
+      summary: Consultar usuario — ADMIN
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200":
+          description: Usuario
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /users/me/password:
+    put:
+      tags: [Usuarios]
+      summary: Cambiar contraseña propia (CU-04)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [currentPassword, newPassword]
+              properties:
+                currentPassword: { type: string, format: password }
+                newPassword: { type: string, format: password, minLength: 8 }
+      responses:
+        "204": { description: Contraseña actualizada }
+        "401": { $ref: "#/components/responses/Error" }
+
+  /categories:
+    post:
+      tags: [Categorías]
+      summary: Crear categoría — ADMIN, WAREHOUSE
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, maxLength: 80 }
+      responses:
+        "201":
+          description: Categoría creada
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Category" }
+        "409": { $ref: "#/components/responses/Error" }
+    get:
+      tags: [Categorías]
+      summary: Listar categorías — autenticado
+      parameters:
+        - $ref: "#/components/parameters/page"
+        - $ref: "#/components/parameters/limit"
+        - name: active
+          in: query
+          schema: { type: boolean }
+      responses:
+        "200":
+          description: Listado paginado
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Page"
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: "#/components/schemas/Category" }
+
+  /categories/{id}:
+    put:
+      tags: [Categorías]
+      summary: Editar o desactivar categoría — ADMIN, WAREHOUSE
+      parameters:
+        - $ref: "#/components/parameters/id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string, maxLength: 80 }
+                active: { type: boolean }
+      responses:
+        "200":
+          description: Categoría actualizada
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Category" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+    delete:
+      tags: [Categorías]
+      summary: Eliminar categoría sin productos — ADMIN
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "204": { description: Eliminada }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { description: "Categoría en uso (código 631)", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    id:
+      name: id
+      in: path
+      required: true
+      schema: { type: integer, minimum: 1 }
+    page:
+      name: page
+      in: query
+      schema: { type: integer, minimum: 1, default: 1 }
+    limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 100, default: 10 }
+  responses:
+    Error:
+      description: Error de dominio
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorBody" }
+    Validation:
+      description: Datos de entrada mal formados (código 400)
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ErrorBody"
+              - type: object
+                properties:
+                  details:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        path: { type: string }
+                        message: { type: string }
+  schemas:
+    ErrorBody:
+      type: object
+      required: [message]
+      properties:
+        message:
+          type: string
+          description: Código de dominio (ver README, tabla de códigos)
+          example: "610"
+    Page:
+      type: object
+      required: [count, page, pages, items]
+      properties:
+        count: { type: integer }
+        page: { type: integer }
+        pages: { type: integer }
+        items: { type: array, items: {} }
+    Role:
+      type: string
+      enum: [ADMIN, SALES, WAREHOUSE]
+    User:
+      type: object
+      properties:
+        id: { type: integer }
+        firstName: { type: string }
+        lastName: { type: string }
+        username: { type: string }
+        role: { $ref: "#/components/schemas/Role" }
+        active: { type: boolean }
+        createdAt: { type: string, format: date-time }
+    CreateUser:
+      type: object
+      required: [firstName, lastName, username, password, role]
+      properties:
+        firstName: { type: string, maxLength: 80 }
+        lastName: { type: string, maxLength: 80 }
+        username: { type: string, minLength: 3, maxLength: 50 }
+        password: { type: string, format: password, minLength: 8 }
+        role: { $ref: "#/components/schemas/Role" }
+    Category:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        active: { type: boolean }
+        createdAt: { type: string, format: date-time }
+
+security:
+  - bearerAuth: []
