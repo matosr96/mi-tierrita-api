@@ -663,20 +663,56 @@ paths:
   /chat/messages:
     get:
       tags: [Chat del equipo]
-      summary: Mensajes del chat en orden cronológico — cualquier rol
-      description: Sin `after`, los últimos `limit`; con `after`, solo los posteriores a ese id (para consultar lo nuevo cada pocos segundos).
+      summary: Mensajes de una conversación en orden cronológico — cualquier rol
+      description: >-
+        Sin `with`, el canal general; con `with`, la conversación privada con esa persona (603 si no existe).
+        Sin `after`, los últimos `limit`; con `after`, solo los posteriores a ese id. Consultar marca la conversación
+        como leída hasta el último mensaje devuelto.
       parameters:
+        - { name: with, in: query, schema: { type: integer, minimum: 1 }, description: Id de la otra persona (mensajes privados) }
         - { name: after, in: query, schema: { type: integer, minimum: 1 } }
         - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 50 } }
       responses:
         "200": { description: Mensajes, content: { application/json: { schema: { type: object, properties: { items: { type: array, items: { $ref: "#/components/schemas/ChatMessage" } } } } } } }
     post:
       tags: [Chat del equipo]
-      summary: Publicar un mensaje — cualquier rol
-      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [body], properties: { body: { type: string, maxLength: 1000 } } } } } }
+      summary: Publicar un mensaje en el canal general o privado (recipientId) — cualquier rol
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [body], properties: { body: { type: string, maxLength: 1000 }, recipientId: { type: integer, minimum: 1, description: "Destinatario de un mensaje privado; sin él, canal general" } } } } } }
       responses:
         "201": { description: Publicado, content: { application/json: { schema: { $ref: "#/components/schemas/ChatMessage" } } } }
         "400": { $ref: "#/components/responses/Validation" }
+        "404": { description: "603 destinatario inexistente o inactivo", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+  /chat/team:
+    get:
+      tags: [Chat del equipo]
+      summary: Equipo del chat — presencia, no leídos y último mensaje por conversación — cualquier rol
+      description: >-
+        En línea = petición autenticada en los últimos 90 segundos sin cierre de sesión posterior. Cada petición
+        autenticada actualiza `last_seen_at` (como mucho cada 20 s); no se audita.
+      responses:
+        "200":
+          description: Canal general y personas activas (sin incluir a quien consulta)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  onlineCount: { type: integer }
+                  general: { type: object, properties: { unread: { type: integer }, lastMessage: { $ref: "#/components/schemas/ChatPreview" } } }
+                  members:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: integer }
+                        firstName: { type: string }
+                        lastName: { type: string }
+                        username: { type: string }
+                        role: { $ref: "#/components/schemas/Role" }
+                        online: { type: boolean }
+                        lastSeenAt: { type: [string, "null"], format: date-time }
+                        unread: { type: integer }
+                        lastMessage: { $ref: "#/components/schemas/ChatPreview" }
 
   # ------------------------------------------------------------ Contactos del sitio
   /contact:
@@ -796,8 +832,15 @@ components:
         firstName: { type: string }
         lastName: { type: string }
         role: { $ref: "#/components/schemas/Role" }
+        recipientId: { type: [integer, "null"], description: "null en el canal general" }
         body: { type: string }
         createdAt: { type: string, format: date-time }
+    ChatPreview:
+      type: [object, "null"]
+      properties:
+        body: { type: string }
+        createdAt: { type: string, format: date-time }
+        mine: { type: boolean }
     ContactMessage:
       type: object
       properties:

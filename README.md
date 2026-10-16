@@ -140,9 +140,10 @@ documentar en `docs/openapi.yaml` → migración si cambia el esquema.
 
 ## Estado de la API
 
-Los 44 endpoints del documento 06 están implementados y documentados en `/docs`. La migración `0002_figma_v4`
-agrega 8 más que pide el prototipo de escritorio v4.2 (Mi perfil, historial de reportes, chat del equipo y contactos
-del sitio); no estaban en el documento 06 y quedan registrados aquí.
+Los 44 endpoints del documento 06 están implementados y documentados en `/docs`. Las migraciones
+`0002_figma_v4` y `0003_chat_privado_presencia` agregan 9 más que pide el prototipo de escritorio v4.2 (Mi perfil,
+historial de reportes, chat del equipo con privados y presencia, y contactos del sitio); no estaban en el documento 06
+y quedan registrados aquí.
 
 | Módulo | Endpoints | Casos de uso |
 |---|---|---|
@@ -157,10 +158,15 @@ del sitio); no estaban en el documento 06 y quedan registrados aquí.
 | Finanzas | `POST/GET /financial/scenarios`, `GET .../compare`, `GET .../:id`, `.../amortization`, `.../sensitivity`, `.../sensitivity/bivariate`, `.../tornado` | CU-14 a CU-17 |
 | Auditoría | `GET /audits` | CU-18 |
 | Reportes | `GET /reports/sales` (incluye `averageTicket`), `GET /reports/inventory`, `GET /reports/receivables`, `GET/POST /reports/exports` (historial de descargas) | CU-19, CU-20, prototipo 09 |
-| Chat del equipo | `GET/POST /chat/messages` (`?after=` para pedir solo lo nuevo) | prototipo 11 |
+| Chat del equipo | `GET/POST /chat/messages` (canal general o privado con `?with=` / `recipientId`; `?after=` para pedir solo lo nuevo), `GET /chat/team` (en línea, no leídos) | prototipo 11 |
 | Contactos del sitio | `POST /contact` (público, 5 por hora por IP, campo trampa `website`), `GET /contact-messages`, `PATCH /contact-messages/:id` | prototipo 12 |
 
 ### Reglas de negocio implementadas
+
+- **Chat y presencia.** El canal general tiene `recipient_id` nulo; un mensaje privado lo lleva y solo lo ven sus
+  dos participantes. Consultar una conversación la marca como leída (`chat_reads`). Cada petición autenticada
+  actualiza `users.last_seen_at` (como mucho cada 20 s, fuera de la auditoría); en línea = actividad en los últimos
+  90 s sin un cierre de sesión posterior.
 
 - **FEFO (RF-02.6).** Una venta descuenta del lote con vencimiento más próximo, saltando los lotes ya
   vencidos; puede consumir varios lotes y deja la asignación en `sale_line_batch_allocations`. Si no

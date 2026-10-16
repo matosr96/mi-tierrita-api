@@ -1,6 +1,7 @@
 import type { Request, RequestHandler } from "express";
 import { ErrorCodes, domainError } from "../common/index";
 import { findUserById } from "../business-logic/users/find-user";
+import { touchPresence } from "../business-logic/users/touch-presence";
 import { verifyAccessToken } from "./token";
 import type { Role } from "./roles";
 
@@ -45,5 +46,7 @@ export const authenticate: RequestHandler = async (req, _res, next) => {
   if (!user.active) throw domainError(ErrorCodes.USER_INACTIVE);
 
   (req as AuthenticatedRequest)[AUTH_KEY] = { userId: user.id, username: user.username, role: user.role };
+  // Presencia para el chat ("en línea"); si falla no afecta la petición.
+  void touchPresence(user.id).catch((err: unknown) => console.error("No se pudo registrar la presencia:", err));
   next();
 };

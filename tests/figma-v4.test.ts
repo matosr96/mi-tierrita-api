@@ -42,3 +42,9 @@ test("estados y exportaciones solo aceptan los valores conocidos", () => {
   assert.deepEqual(paths400(() => parseCreateReportExport({ report: "ventas", format: "doc", description: "" })), ["report", "format", "description"]);
   assert.deepEqual(paths400(() => parseCreateChatMessage({ body: "   " })), ["body"]);
 });
+
+test("parseCreateChatMessage acepta un destinatario opcional para mensajes privados", () => {
+  assert.deepEqual(parseCreateChatMessage({ body: "Hola" }), { body: "Hola", recipientId: null });
+  assert.deepEqual(parseCreateChatMessage({ body: "Hola", recipientId: 3 }), { body: "Hola", recipientId: 3 });
+  assert.deepEqual(paths400(() => parseCreateChatMessage({ body: "Hola", recipientId: 0 })), ["recipientId"]);
+});
