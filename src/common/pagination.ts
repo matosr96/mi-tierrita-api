@@ -41,3 +41,17 @@ export const toPageResponse = <T>(
   pages: count === 0 ? 0 : Math.ceil(count / request.limit),
   items,
 });
+
+/**
+ * Comparación de búsqueda sin tildes ni mayúsculas ("maria perez" encuentra "María Pérez"). Sin extensiones de
+ * PostgreSQL: `translate` quita las tildes de la columna; el término se normaliza igual en `searchTerm`.
+ */
+export const ACCENTS_FROM = "áéíóúüñÁÉÍÓÚÜÑ";
+export const ACCENTS_TO = "aeiouunAEIOUUN";
+export const unaccentSql = (column: string): string => `lower(translate(${column}, '${ACCENTS_FROM}', '${ACCENTS_TO}'))`;
+export const searchTerm = (raw: string): string =>
+  `%${raw
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[%_]/g, "")}%`;

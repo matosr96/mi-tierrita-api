@@ -1,4 +1,4 @@
-import { toPageResponse, type PageRequest, type PageResponse } from "../../common/index";
+import { toPageResponse, type PageRequest, type PageResponse, searchTerm, unaccentSql } from "../../common/index";
 import { db } from "../../data-sources/index";
 import { toProductResponse, type ProductListFilter, type ProductResponse, type ProductRow } from "../../models/index";
 import { PRODUCT_COLUMNS, PRODUCT_FROM } from "./find-product";
@@ -16,8 +16,8 @@ export const listProducts = async (page: PageRequest, filter: ProductListFilter)
     conditions.push(`p.active = $${params.length}`);
   }
   if (filter.search !== undefined && filter.search !== "") {
-    params.push(`%${filter.search}%`);
-    conditions.push(`(p.name ILIKE $${params.length} OR p.sku ILIKE $${params.length})`);
+    params.push(searchTerm(filter.search));
+    conditions.push(`(${unaccentSql("p.name")} LIKE $${params.length} OR lower(p.sku) LIKE $${params.length})`);
   }
   const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
   const [{ rows: countRows }, { rows }] = await Promise.all([

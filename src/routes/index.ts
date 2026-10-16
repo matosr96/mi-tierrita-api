@@ -13,6 +13,7 @@ import { reportsRouter } from "./reports";
 import { financialRouter } from "./financial";
 import { chatRouter } from "./chat";
 import { contactMessagesRouter, contactPublicRouter } from "./contact";
+import { aiRouter } from "./ai";
 
 export { healthRouter } from "./health";
 export { docsRouter } from "./docs";
@@ -45,3 +46,4 @@ apiRouter.use("/reports", reportsRouter);
 apiRouter.use("/financial", financialRouter);
 apiRouter.use("/chat", chatRouter);
 apiRouter.use("/contact-messages", contactMessagesRouter);
+apiRouter.use("/ai", aiRouter);

@@ -31,3 +31,10 @@ test("AUD-04: el reporte de ventas rechaza un rango con 'from' posterior a 'to'"
     (err: unknown) => isDomainError(err) && err.code === "400",
   );
 });
+
+test("AUD-25: la búsqueda no depende de tildes ni mayúsculas", async () => {
+  const { searchTerm, unaccentSql } = await import("../src/common/pagination");
+  assert.equal(searchTerm("María PÉREZ"), "%maria perez%");
+  assert.equal(searchTerm("50%_off"), "%50off%");
+  assert.match(unaccentSql("name"), /translate\(name/);
+});

@@ -10,3 +10,4 @@ export * from "./financial";
 export * from "./exports";
 export * from "./chat";
 export * from "./contact";
+export * from "./ai";

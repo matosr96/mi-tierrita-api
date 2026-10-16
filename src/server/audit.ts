@@ -4,6 +4,9 @@ import { getAuth } from "../security/index";
 
 const WRITE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
+/** Rutas POST que no cambian datos (consultas al asistente): no son escrituras y no se auditan. */
+const READ_ONLY_POSTS = /\/ai\//;
+
 /**
  * Middleware de auditoría (RF-07.1): registra automáticamente cada escritura exitosa
  * (usuario, método, recurso, fecha) sin que cada ruta tenga que hacerlo.
@@ -12,11 +15,13 @@ const WRITE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
  */
 export const auditMiddleware: RequestHandler = (req, res, next) => {
   res.on("finish", () => {
-    if (!WRITE_METHODS.has(req.method) || res.statusCode >= 400) return;
+    if (!WRITE_METHODS.has(req.method) || res.statusCode >= 400 || READ_ONLY_POSTS.test(req.originalUrl)) return;
     const auth = getAuth(req);
     if (auth === undefined) return;
     const resource = req.originalUrl.split("?")[0] ?? req.originalUrl;
-    void recordAudit({ userId: auth.userId, method: req.method, resource }).catch((err: unknown) => console.error("No se pudo registrar la auditoría:", err));
+    // La app envía X-AI-Suggested: 1 cuando la persona confirma una operación que preparó el asistente.
+    const aiSuggested = req.get("x-ai-suggested") === "1";
+    void recordAudit({ userId: auth.userId, method: req.method, resource, aiSuggested }).catch((err: unknown) => console.error("No se pudo registrar la auditoría:", err));
   });
   next();
 };

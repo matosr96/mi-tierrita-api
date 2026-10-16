@@ -55,6 +55,8 @@ Ningún valor sensible va en el código ni en la imagen. Ver [.env.example](.env
 | `DB_SSL` | TLS de la conexión: `disable`, `require` o `verify` |
 | `JWT_SECRET` | Firma de los tokens; mínimo 32 caracteres, sin valor por defecto |
 | `JWT_EXPIRES_IN` | Vigencia del token (`8h`) |
+| `ANTHROPIC_API_KEY` | Clave de Claude (Anthropic) para el asistente. Opcional: sin ella las rutas `/ai` responden 660 y la app oculta la IA |
+| `AI_MODEL` / `AI_FAST_MODEL` | Modelo del asistente y de los textos cortos (`claude-sonnet-5-5` / `claude-haiku-5-5`) |
 | `BUSINESS_TZ` | Zona horaria del negocio para "hoy", cortes de reportes y vencimientos (`America/Bogota`) |
 | `CORS_ORIGINS` | Dominios del frontend permitidos, separados por coma |
 
@@ -138,6 +140,8 @@ documentar en `docs/openapi.yaml` → migración si cambia el esquema.
 | 631 | Categoría con productos asociados | 409 |
 | 640 | Demasiados intentos de acceso | 429 |
 | 650 | Escenario financiero inválido | 422 |
+| 660 | IA no configurada (falta `ANTHROPIC_API_KEY`) | 503 |
+| 661 | El proveedor de IA falló o no respondió | 502 |
 
 ## Estado de la API
 
@@ -160,6 +164,7 @@ y quedan registrados aquí.
 | Auditoría | `GET /audits` | CU-18 |
 | Reportes | `GET /reports/sales` (incluye `averageTicket`), `GET /reports/inventory`, `GET /reports/receivables`, `GET/POST /reports/exports` (historial de descargas) | CU-19, CU-20, prototipo 09 |
 | Chat del equipo | `GET/POST /chat/messages` (canal general o privado con `?with=` / `recipientId`; `?after=` para pedir solo lo nuevo), `GET /chat/team` (en línea, no leídos) | prototipo 11 |
+| Tita (asistente de IA) | `GET /ai/status`, `GET /ai/briefing` (recomendaciones del rol + párrafo de IA), `POST /ai/chat` (herramientas de consulta y de acción con los permisos del rol; acepta adjuntos: imagen, PDF o texto; hasta 24 MB), `POST /ai/drafts`, `POST /ai/invoice` (ADMIN, WAREHOUSE). Las herramientas de acción no escriben: validan con el mismo `parseX` del endpoint y devuelven la petición exacta; la app la ejecuta contra el endpoint real solo si la persona confirma, con `X-AI-Suggested: 1` (auditoría `ai_suggested`). No crea usuarios ni maneja contraseñas. Tope de 40 consultas cada 5 min por persona; las rutas `/ai` no se auditan porque no escriben. La búsqueda de clientes y productos ignora tildes y mayúsculas | extensión |
 | Contactos del sitio | `POST /contact` (público, 5 por hora por IP, campo trampa `website`), `GET /contact-messages`, `PATCH /contact-messages/:id` | prototipo 12 |
 
 ### Reglas de negocio implementadas

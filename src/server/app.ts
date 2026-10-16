@@ -14,7 +14,12 @@ export const createApp = () => {
   app.set("trust proxy", 1); // la API corre detrás de un balanceador / proxy HTTPS
   app.use(helmet());
   app.use(cors({ origin: config.corsOrigins, credentials: false }));
-  app.use(express.json({ limit: "1mb" }));
+  // La foto de una factura para el asistente pesa más que cualquier otro cuerpo; el resto conserva el límite de 1 MB.
+  const jsonSmall = express.json({ limit: "1mb" });
+  const jsonInvoice = express.json({ limit: "8mb" });
+  // Las fotos de facturas y los documentos que se le adjuntan a Tita pesan más que cualquier otro cuerpo.
+  const jsonChat = express.json({ limit: "24mb" });
+  app.use((req, res, next) => (req.path.endsWith("/ai/invoice") ? jsonInvoice : req.path.endsWith("/ai/chat") ? jsonChat : jsonSmall)(req, res, next));
 
   // Públicas sin prefijo (documento 06, "Salud y documentación")
   app.use("/health", healthRouter);

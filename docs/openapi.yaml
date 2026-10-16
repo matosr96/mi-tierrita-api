@@ -26,6 +26,7 @@ tags:
   - { name: Reportes }
   - { name: Chat del equipo }
   - { name: Contactos del sitio }
+  - { name: Asistente de IA }
 
 paths:
   # ------------------------------------------------------------ Autenticación
@@ -758,6 +759,105 @@ paths:
       responses:
         "200": { description: Actualizado, content: { application/json: { schema: { $ref: "#/components/schemas/ContactMessage" } } } }
         "404": { description: "608 contacto no encontrado", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+
+  # ------------------------------------------------------------ Asistente de IA
+  /ai/status:
+    get:
+      tags: [Asistente de IA]
+      summary: ¿Hay IA configurada? — cualquier rol
+      responses:
+        "200": { description: Estado, content: { application/json: { schema: { type: object, properties: { enabled: { type: boolean }, model: { type: [string, "null"] } } } } } }
+  /ai/briefing:
+    get:
+      tags: [Asistente de IA]
+      summary: Recomendaciones del día del rol (calculadas sin IA) y párrafo que las prioriza (con IA) — cualquier rol
+      description: >-
+        restock (cobertura < 10 días al ritmo de 30 días), rotate (lote que vence en 45 días con sobrante proyectado),
+        collect (clientes con saldo), idle (sin ventas en 60 días). ADMIN ve todas; SALES solo collect; WAREHOUSE todas
+        menos collect. `text` es null sin IA o si falla.
+      responses:
+        "200": { description: Resumen, content: { application/json: { schema: { type: object, properties: { text: { type: [string, "null"] }, generatedAt: { type: string, format: date-time }, insights: { type: array, items: { type: object } } } } } } }
+  /ai/chat:
+    post:
+      tags: [Asistente de IA]
+      summary: Pregunta al asistente con herramientas del rol — cualquier rol
+      description: >-
+        La conversación viaja completa (máx. 20 turnos; el último es de la persona) y no se guarda. Las herramientas de
+        consulta llaman a la misma lógica que los endpoints, con sus roles. `proposals` son tarjetas: `action` (la petición
+        exacta a un endpoint de escritura, que la app ejecuta solo si la persona confirma) o `report` (abre un reporte).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [messages]
+              properties:
+                messages:
+                  type: array
+                  maxItems: 20
+                  items:
+                    type: object
+                    required: [role, content]
+                    properties:
+                      role: { type: string, enum: [user, assistant] }
+                      content: { type: string, maxLength: 4000 }
+                      attachments:
+                        type: array
+                        maxItems: 4
+                        description: Solo se envían completos en la última pregunta. Imagen o PDF en base64 (sin data:), o texto ya extraído (CSV, Excel, .txt).
+                        items:
+                          type: object
+                          required: [kind, name]
+                          properties:
+                            kind: { type: string, enum: [image, pdf, text] }
+                            name: { type: string }
+                            mediaType: { type: string, enum: [image/jpeg, image/png, image/webp] }
+                            data: { type: string }
+                            text: { type: string, maxLength: 200000 }
+      responses:
+        "200": { description: Respuesta, content: { application/json: { schema: { type: object, properties: { reply: { type: string }, sources: { type: array, items: { type: object } }, proposals: { type: array, items: { type: object } } } } } } }
+        "429": { description: Tope de consultas (640) }
+        "503": { description: IA no configurada (660) }
+        "502": { description: Falla del proveedor de IA (661) }
+  /ai/drafts:
+    post:
+      tags: [Asistente de IA]
+      summary: Borrador de texto con datos reales — el rol depende del tipo
+      description: "collection_message (ADMIN, SALES), contact_reply (ADMIN), report_summary (ADMIN, SALES), scenario_explain (ADMIN)."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [kind]
+              properties:
+                kind: { type: string, enum: [collection_message, contact_reply, report_summary, scenario_explain] }
+                customerId: { type: integer }
+                contactId: { type: integer }
+                scenarioId: { type: integer }
+                from: { type: string, format: date }
+                to: { type: string, format: date }
+      responses:
+        "200": { description: Borrador, content: { application/json: { schema: { type: object, properties: { kind: { type: string }, text: { type: string }, phone: { type: [string, "null"] } } } } } }
+  /ai/invoice:
+    post:
+      tags: [Asistente de IA]
+      summary: Lee la foto de una factura y la cruza con catálogo y proveedores — ADMIN, WAREHOUSE
+      description: Cuerpo hasta 8 MB. No registra nada; la app registra una compra por línea tras la confirmación.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [image, mediaType]
+              properties:
+                image: { type: string, description: "base64 sin encabezado data:" }
+                mediaType: { type: string, enum: [image/jpeg, image/png, image/webp] }
+      responses:
+        "200": { description: Lectura con candidatos por línea y advertencias }
 
 components:
   securitySchemes:

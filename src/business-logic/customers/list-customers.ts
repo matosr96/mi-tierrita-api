@@ -1,4 +1,4 @@
-import { toPageResponse, type PageRequest, type PageResponse } from "../../common/index";
+import { toPageResponse, type PageRequest, type PageResponse, searchTerm, unaccentSql } from "../../common/index";
 import { db } from "../../data-sources/index";
 import { toCustomerResponse, type CustomerResponse, type CustomerRow } from "../../models/index";
 import { CUSTOMER_COLUMNS } from "./find-customer";
@@ -14,8 +14,8 @@ export const listCustomers = async (page: PageRequest, filter: CustomerListFilte
   }
   if (filter.withBalance === true) conditions.push(`balance > 0`);
   if (filter.search !== undefined && filter.search !== "") {
-    params.push(`%${filter.search}%`);
-    conditions.push(`(name ILIKE $${params.length} OR document_id ILIKE $${params.length})`);
+    params.push(searchTerm(filter.search));
+    conditions.push(`(${unaccentSql("name")} LIKE $${params.length} OR lower(document_id) LIKE $${params.length})`);
   }
   const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
   const [{ rows: countRows }, { rows }] = await Promise.all([

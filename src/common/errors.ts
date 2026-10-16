@@ -34,6 +34,9 @@ export const ErrorCodes = {
   TOO_MANY_ATTEMPTS: "640",
 
   INVALID_SCENARIO: "650",
+
+  AI_UNAVAILABLE: "660",
+  AI_FAILED: "661",
 } as const;
 
 export type ErrorCode = (typeof ErrorCodes)[keyof typeof ErrorCodes];
@@ -65,6 +68,8 @@ export const httpStatusByCode: Record<ErrorCode, number> = {
   "631": 409,
   "640": 429,
   "650": 422,
+  "660": 503,
+  "661": 502,
 };
 
 /**

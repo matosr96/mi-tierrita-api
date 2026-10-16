@@ -69,4 +69,13 @@ export const config = {
     .map((origin) => origin.trim())
     .filter((origin) => origin !== ""),
   bcryptRounds: 10,
+  /**
+   * Asistente de IA (Claude, de Anthropic). Sin ANTHROPIC_API_KEY la API funciona igual y las rutas /ai responden 660;
+   * la app oculta las funciones de IA. AI_MODEL conversa y usa herramientas; AI_FAST_MODEL redacta textos cortos.
+   */
+  ai: {
+    apiKey: optional("ANTHROPIC_API_KEY", ""),
+    model: optional("AI_MODEL", "claude-sonnet-5-5"),
+    fastModel: optional("AI_FAST_MODEL", "claude-haiku-5-5"),
+  },
 } as const;
