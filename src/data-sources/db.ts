@@ -1,5 +1,6 @@
 import pg from "pg";
 import { config } from "../server/config";
+import { BUSINESS_TIME_ZONE } from "../common/dates";
 
 /**
  * Única puerta hacia PostgreSQL. Cliente SQL directo (sin ORM): el equipo controla
@@ -17,6 +18,8 @@ types.setTypeParser(1082, (value: string) => value);
 
 const pool = new Pool({
   ...config.db,
+  // Cada sesión trabaja en la hora del negocio: `created_at::date`, CURRENT_DATE y los cortes por fecha cuentan en hora local.
+  options: `-c TimeZone=${BUSINESS_TIME_ZONE}`,
   max: 10,
   idleTimeoutMillis: 30_000,
 });

@@ -16,9 +16,13 @@ export type RegisterBatchInput = {
  * CU-06 Registrar lote (y CU-13 compra a proveedor): crea el lote y aumenta el stock del
  * producto en la misma transacción, con la fila del producto bloqueada.
  * Si no se indica costo unitario se usa el precio de compra vigente del producto.
+ * Un lote que ya llega vencido se rechaza: subiría el stock con unidades que FEFO nunca puede vender.
  */
-export const registerBatch = async (input: RegisterBatchInput): Promise<ProductBatchResponse> =>
-  db.transaction(async (client) => {
+export const registerBatch = async (input: RegisterBatchInput): Promise<ProductBatchResponse> => {
+  if (input.expiresAt < todayIso()) {
+    throw domainError(ErrorCodes.VALIDATION, [{ path: "expiresAt", message: "El lote ya está vencido; no puede ingresar a bodega" }]);
+  }
+  return db.transaction(async (client) => {
     const product = await lockProductById(input.productId, client);
     if (product === undefined) throw domainError(ErrorCodes.PRODUCT_NOT_FOUND);
     if (!product.active) throw domainError(ErrorCodes.PRODUCT_INACTIVE);
@@ -42,3 +46,4 @@ export const registerBatch = async (input: RegisterBatchInput): Promise<ProductB
     if (batch === undefined) throw new Error("Lote recién creado no encontrado");
     return toProductBatchResponse(batch, todayIso());
   });
+};

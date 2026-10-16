@@ -1,6 +1,16 @@
 import { isIsoDate } from "./validate";
 
-export const todayIso = (): string => new Date().toISOString().slice(0, 10);
+/**
+ * Zona horaria del negocio (la tienda está en Córdoba, Colombia). "Hoy", el corte de los reportes y el
+ * vencimiento de los lotes se cuentan en hora local, no en UTC: una venta de las 8 p. m. es del mismo día.
+ * La sesión de PostgreSQL usa la misma zona (ver data-sources/db.ts) para que `::date` coincida.
+ */
+export const BUSINESS_TIME_ZONE = process.env["BUSINESS_TZ"]?.trim() || "America/Bogota";
+
+const isoFormatter = new Intl.DateTimeFormat("en-CA", { timeZone: BUSINESS_TIME_ZONE, year: "numeric", month: "2-digit", day: "2-digit" });
+
+/** Fecha YYYY-MM-DD en la zona del negocio (por defecto, la de este instante). */
+export const todayIso = (now: Date = new Date()): string => isoFormatter.format(now);
 
 export const addDaysIso = (isoDate: string, days: number): string => {
   const d = new Date(`${isoDate}T00:00:00Z`);

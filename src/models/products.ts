@@ -9,6 +9,8 @@ export type ProductRow = {
   purchasePrice: number;
   salePrice: number;
   stock: number;
+  /** Unidades de lotes no vencidos: lo que FEFO puede vender hoy (stock menos lo vencido en bodega). */
+  availableStock: number;
   active: boolean;
   createdAt: Date;
   updatedAt: Date;

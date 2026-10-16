@@ -4,7 +4,9 @@ import type { ProductRow } from "../../models/index";
 export const PRODUCT_COLUMNS = `
   p.id, p.name, p.sku, p.category_id AS "categoryId", c.name AS "categoryName",
   p.purchase_price AS "purchasePrice", p.sale_price AS "salePrice", p.stock, p.active,
-  p.created_at AS "createdAt", p.updated_at AS "updatedAt"`;
+  p.created_at AS "createdAt", p.updated_at AS "updatedAt",
+  (SELECT COALESCE(sum(b.quantity_remaining), 0)::int FROM product_batches b
+    WHERE b.product_id = p.id AND b.quantity_remaining > 0 AND b.expires_at >= CURRENT_DATE) AS "availableStock"`;
 
 export const PRODUCT_FROM = `FROM products p JOIN categories c ON c.id = p.category_id`;
 

@@ -55,6 +55,7 @@ Ningún valor sensible va en el código ni en la imagen. Ver [.env.example](.env
 | `DB_SSL` | TLS de la conexión: `disable`, `require` o `verify` |
 | `JWT_SECRET` | Firma de los tokens; mínimo 32 caracteres, sin valor por defecto |
 | `JWT_EXPIRES_IN` | Vigencia del token (`8h`) |
+| `BUSINESS_TZ` | Zona horaria del negocio para "hoy", cortes de reportes y vencimientos (`America/Bogota`) |
 | `CORS_ORIGINS` | Dominios del frontend permitidos, separados por coma |
 
 ## Arquitectura

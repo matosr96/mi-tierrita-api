@@ -228,7 +228,7 @@ paths:
               required: [quantity, expiresAt]
               properties:
                 quantity: { type: integer, minimum: 1 }
-                expiresAt: { type: string, format: date, example: "2026-12-31" }
+                expiresAt: { type: string, format: date, example: "2026-12-31", description: "Hoy o posterior (hora de Colombia); un lote vencido responde 400" }
                 unitCost: { type: number, description: Por defecto el precio de compra del producto }
                 supplierId: { type: integer }
       responses:
@@ -397,7 +397,7 @@ paths:
                 productId: { type: integer }
                 quantity: { type: integer, minimum: 1 }
                 unitCost: { type: number, minimum: 0 }
-                expiresAt: { type: string, format: date }
+                expiresAt: { type: string, format: date, description: "Hoy o posterior (hora de Colombia); un lote vencido responde 400" }
       responses:
         "201": { description: Lote creado, content: { application/json: { schema: { $ref: "#/components/schemas/ProductBatch" } } } }
         "404": { description: "605 proveedor · 601 producto", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
@@ -881,6 +881,7 @@ components:
         purchasePrice: { type: number }
         salePrice: { type: number }
         stock: { type: integer }
+        availableStock: { type: integer, description: "Unidades de lotes no vencidos (lo que se puede vender hoy)" }
         active: { type: boolean }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
