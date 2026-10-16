@@ -225,3 +225,36 @@ El backend se empaqueta como imagen de contenedor ([Dockerfile](Dockerfile)); CI
 PostgreSQL efímero, build y construye la imagen. En producción la API corre detrás de un proxy HTTPS
 y la base es un servicio gestionado aparte con respaldos automáticos; la API no guarda estado entre
 peticiones, así que puede reiniciarse sin pérdida.
+
+## Licencias
+
+### Código del proyecto
+
+© 2026 Karina Redondo Sáez, Alexa Patricia Ricardo Lozano y Edgar Alexander Matos Rivera. **Todos los derechos
+reservados.** Mi Tierrita SIG es un Trabajo Colaborativo Contextualizado del programa de Ingeniería de Software de la
+Universidad de Cartagena. El código se puede consultar en este repositorio, pero no se concede permiso para usarlo,
+copiarlo, modificarlo ni distribuirlo sin autorización escrita de los autores (por eso `package.json` declara
+`"license": "UNLICENSED"`). El texto completo está en [LICENSE](LICENSE). El motor financiero es un porte del modelo de cálculo del mismo trabajo y tiene la misma reserva.
+
+### Dependencias
+
+Las dependencias directas de producción y sus licencias:
+
+| Paquete | Licencia |
+|---|---|
+| express, cors, helmet, express-rate-limit | MIT |
+| pg | MIT |
+| jsonwebtoken | MIT |
+| swagger-ui-express | MIT (incluye swagger-ui-dist, Apache-2.0) |
+| @anthropic-ai/sdk | MIT |
+| bcryptjs | BSD-3-Clause |
+| dotenv | BSD-2-Clause |
+| yaml | ISC |
+
+Entre las 111 dependencias de producción (incluidas las transitivas) hay licencias MIT, ISC, BSD-2-Clause, BSD-3-Clause,
+Apache-2.0 y Unlicense; todas permiten este uso. El detalle actualizado se obtiene con `pnpm licenses list --prod`.
+
+### Servicios externos
+
+Tita usa la API de Claude de Anthropic cuando hay `ANTHROPIC_API_KEY`. El SDK es MIT; el uso del servicio se rige por
+los términos comerciales de Anthropic de la cuenta que aporta la clave, no por la licencia de este repositorio.
