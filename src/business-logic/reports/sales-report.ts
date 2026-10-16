@@ -15,6 +15,8 @@ export type SalesReport = {
   total: number;
   cashTotal: number;
   creditTotal: number;
+  /** Total vendido / número de ventas del periodo (null si no hubo ventas). */
+  averageTicket: number | null;
   rows: SalesReportByDayRow[] | SalesReportByProductRow[];
 };
 
@@ -62,5 +64,6 @@ export const salesReport = async (from: string, to: string, groupBy: SalesGroupB
           )
         ).rows;
 
-  return { from, to, groupBy, ...summary, rows };
+  const averageTicket = summary.salesCount > 0 ? Math.round((summary.total / summary.salesCount) * 100) / 100 : null;
+  return { from, to, groupBy, ...summary, averageTicket, rows };
 };

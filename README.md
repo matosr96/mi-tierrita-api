@@ -122,6 +122,7 @@ documentar en `docs/openapi.yaml` → migración si cambia el esquema.
 | 605 | Proveedor no encontrado | 404 |
 | 606 | Venta no encontrada | 404 |
 | 607 | Escenario financiero no encontrado | 404 |
+| 608 | Contacto del sitio no encontrado | 404 |
 | 610 | Credenciales inválidas | 401 |
 | 611 | Token ausente o inválido | 401 |
 | 612 | Usuario inactivo | 401 |
@@ -139,13 +140,15 @@ documentar en `docs/openapi.yaml` → migración si cambia el esquema.
 
 ## Estado de la API
 
-Los 44 endpoints del documento 06 están implementados y documentados en `/docs`.
+Los 44 endpoints del documento 06 están implementados y documentados en `/docs`. La migración `0002_figma_v4`
+agrega 8 más que pide el prototipo de escritorio v4.2 (Mi perfil, historial de reportes, chat del equipo y contactos
+del sitio); no estaban en el documento 06 y quedan registrados aquí.
 
 | Módulo | Endpoints | Casos de uso |
 |---|---|---|
 | Salud y documentación | `GET /health`, `GET /docs`, `GET /docs/openapi.json` | — |
 | Autenticación | `POST /auth/signin`, `POST /auth/signout`, `GET /auth/me` | CU-01, CU-02 |
-| Usuarios | `POST/GET /users`, `GET /users/:id`, `PUT /users/me/password` | CU-03, CU-04 |
+| Usuarios | `POST/GET /users`, `GET /users/:id`, `PUT /users/me/password`, `PUT /users/me` (perfil propio) | CU-03, CU-04, prototipo 15 |
 | Categorías | `POST/GET /categories`, `PUT/DELETE /categories/:id` | — |
 | Productos e inventario | `POST/GET /products`, `GET/PUT/DELETE /products/:id`, `POST/GET /products/:id/batches`, `GET /batches/expiring` | CU-05, CU-06, CU-07 |
 | Ventas | `POST/GET /sales`, `GET /sales/:id`, `POST /sales/:id/void` | CU-08 (FEFO), CU-09, CU-10, CU-11, RF-03.4 |
@@ -153,7 +156,9 @@ Los 44 endpoints del documento 06 están implementados y documentados en `/docs`
 | Proveedores | `POST/GET /suppliers`, `PUT /suppliers/:id`, `POST /suppliers/:id/purchases` | CU-13 |
 | Finanzas | `POST/GET /financial/scenarios`, `GET .../compare`, `GET .../:id`, `.../amortization`, `.../sensitivity`, `.../sensitivity/bivariate`, `.../tornado` | CU-14 a CU-17 |
 | Auditoría | `GET /audits` | CU-18 |
-| Reportes | `GET /reports/sales`, `GET /reports/inventory`, `GET /reports/receivables` | CU-19, CU-20 |
+| Reportes | `GET /reports/sales` (incluye `averageTicket`), `GET /reports/inventory`, `GET /reports/receivables`, `GET/POST /reports/exports` (historial de descargas) | CU-19, CU-20, prototipo 09 |
+| Chat del equipo | `GET/POST /chat/messages` (`?after=` para pedir solo lo nuevo) | prototipo 11 |
+| Contactos del sitio | `POST /contact` (público, 5 por hora por IP, campo trampa `website`), `GET /contact-messages`, `PATCH /contact-messages/:id` | prototipo 12 |
 
 ### Reglas de negocio implementadas
 

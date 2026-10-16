@@ -24,6 +24,8 @@ tags:
   - { name: Finanzas }
   - { name: Auditoría }
   - { name: Reportes }
+  - { name: Chat del equipo }
+  - { name: Contactos del sitio }
 
 paths:
   # ------------------------------------------------------------ Autenticación
@@ -113,6 +115,26 @@ paths:
       responses:
         "204": { description: Contraseña actualizada }
         "401": { description: "610 contraseña actual incorrecta", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+
+  /users/me:
+    put:
+      tags: [Usuarios]
+      summary: Actualizar mi perfil (nombre, correo, teléfono) — cualquier rol
+      description: Enviar null o "" en email o phone los borra. El usuario y el rol solo los cambia el administrador.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                firstName: { type: string, maxLength: 80 }
+                lastName: { type: string, maxLength: 80 }
+                email: { type: [string, "null"], format: email, maxLength: 120 }
+                phone: { type: [string, "null"], maxLength: 30 }
+      responses:
+        "200": { description: Perfil actualizado, content: { application/json: { schema: { $ref: "#/components/schemas/User" } } } }
+        "400": { $ref: "#/components/responses/Validation" }
 
   # ------------------------------------------------------------ Categorías
   /categories:
@@ -555,6 +577,7 @@ paths:
                   total: { type: number }
                   cashTotal: { type: number }
                   creditTotal: { type: number }
+                  averageTicket: { type: [number, "null"], description: "Total vendido / número de ventas; null si no hubo ventas" }
                   rows:
                     type: array
                     items:
@@ -610,6 +633,96 @@ paths:
                     type: array
                     items: { type: object, properties: { customerId: { type: integer }, name: { type: string }, creditLimit: { type: number }, balance: { type: number }, lastCreditSaleAt: { type: [string, "null"] }, lastPaymentAt: { type: [string, "null"] }, overdue: { type: boolean } } }
 
+  /reports/exports:
+    get:
+      tags: [Reportes]
+      summary: Historial de reportes descargados — ADMIN (todo el equipo), SALES (los suyos)
+      parameters: [{ $ref: "#/components/parameters/page" }, { $ref: "#/components/parameters/limit" }]
+      responses:
+        "200": { description: Más recientes primero, content: { application/json: { schema: { allOf: [{ $ref: "#/components/schemas/Page" }, { type: object, properties: { items: { type: array, items: { $ref: "#/components/schemas/ReportExport" } } } }] } } } }
+    post:
+      tags: [Reportes]
+      summary: Registrar la descarga de un reporte en PDF o Excel — ADMIN, SALES (SALES solo `sales`)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [report, format, description]
+              properties:
+                report: { type: string, enum: [sales, inventory, receivables, scenario] }
+                format: { type: string, enum: [pdf, xlsx] }
+                description: { type: string, maxLength: 200 }
+      responses:
+        "201": { description: Registrada, content: { application/json: { schema: { $ref: "#/components/schemas/ReportExport" } } } }
+        "400": { $ref: "#/components/responses/Validation" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  # ------------------------------------------------------------ Chat del equipo
+  /chat/messages:
+    get:
+      tags: [Chat del equipo]
+      summary: Mensajes del chat en orden cronológico — cualquier rol
+      description: Sin `after`, los últimos `limit`; con `after`, solo los posteriores a ese id (para consultar lo nuevo cada pocos segundos).
+      parameters:
+        - { name: after, in: query, schema: { type: integer, minimum: 1 } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 50 } }
+      responses:
+        "200": { description: Mensajes, content: { application/json: { schema: { type: object, properties: { items: { type: array, items: { $ref: "#/components/schemas/ChatMessage" } } } } } } }
+    post:
+      tags: [Chat del equipo]
+      summary: Publicar un mensaje — cualquier rol
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [body], properties: { body: { type: string, maxLength: 1000 } } } } } }
+      responses:
+        "201": { description: Publicado, content: { application/json: { schema: { $ref: "#/components/schemas/ChatMessage" } } } }
+        "400": { $ref: "#/components/responses/Validation" }
+
+  # ------------------------------------------------------------ Contactos del sitio
+  /contact:
+    post:
+      tags: [Contactos del sitio]
+      summary: Dejar un mensaje desde la página pública — público, máximo 5 por hora por IP (640)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, body]
+              description: Teléfono o correo (al menos uno). `website` es un campo trampa oculto; si llega lleno el mensaje se descarta.
+              properties:
+                name: { type: string, minLength: 2, maxLength: 100 }
+                phone: { type: string, maxLength: 30 }
+                email: { type: string, format: email, maxLength: 120 }
+                topic: { type: string, maxLength: 80 }
+                body: { type: string, minLength: 5, maxLength: 2000 }
+                website: { type: string }
+      responses:
+        "202": { description: Recibido }
+        "400": { $ref: "#/components/responses/Validation" }
+        "429": { description: "640 demasiados envíos", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+  /contact-messages:
+    get:
+      tags: [Contactos del sitio]
+      summary: Bandeja de contactos — ADMIN (sin filtro, los no archivados)
+      parameters:
+        - { name: status, in: query, schema: { type: string, enum: [NEW, READ, ARCHIVED] } }
+        - { $ref: "#/components/parameters/page" }
+        - { $ref: "#/components/parameters/limit" }
+      responses:
+        "200": { description: Más recientes primero, content: { application/json: { schema: { allOf: [{ $ref: "#/components/schemas/Page" }, { type: object, properties: { items: { type: array, items: { $ref: "#/components/schemas/ContactMessage" } } } }] } } } }
+  /contact-messages/{id}:
+    patch:
+      tags: [Contactos del sitio]
+      summary: Cambiar el estado de un contacto — ADMIN
+      parameters: [{ $ref: "#/components/parameters/id" }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [status], properties: { status: { type: string, enum: [NEW, READ, ARCHIVED] } } } } } }
+      responses:
+        "200": { description: Actualizado, content: { application/json: { schema: { $ref: "#/components/schemas/ContactMessage" } } } }
+        "404": { description: "608 contacto no encontrado", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+
 components:
   securitySchemes:
     bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }
@@ -661,6 +774,40 @@ components:
         username: { type: string }
         role: { $ref: "#/components/schemas/Role" }
         active: { type: boolean }
+        email: { type: [string, "null"] }
+        phone: { type: [string, "null"] }
+        createdAt: { type: string, format: date-time }
+    ReportExport:
+      type: object
+      properties:
+        id: { type: integer }
+        userId: { type: integer }
+        username: { type: string }
+        report: { type: string, enum: [sales, inventory, receivables, scenario] }
+        format: { type: string, enum: [pdf, xlsx] }
+        description: { type: string }
+        createdAt: { type: string, format: date-time }
+    ChatMessage:
+      type: object
+      properties:
+        id: { type: integer }
+        userId: { type: integer }
+        username: { type: string }
+        firstName: { type: string }
+        lastName: { type: string }
+        role: { $ref: "#/components/schemas/Role" }
+        body: { type: string }
+        createdAt: { type: string, format: date-time }
+    ContactMessage:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        phone: { type: [string, "null"] }
+        email: { type: [string, "null"] }
+        topic: { type: [string, "null"] }
+        body: { type: string }
+        status: { type: string, enum: [NEW, READ, ARCHIVED] }
         createdAt: { type: string, format: date-time }
     UserPage: { allOf: [{ $ref: "#/components/schemas/Page" }, { type: object, properties: { items: { type: array, items: { $ref: "#/components/schemas/User" } } } }] }
     CreateUser:

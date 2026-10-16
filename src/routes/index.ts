@@ -11,6 +11,8 @@ import { salesRouter } from "./sales";
 import { auditsRouter } from "./audits";
 import { reportsRouter } from "./reports";
 import { financialRouter } from "./financial";
+import { chatRouter } from "./chat";
+import { contactMessagesRouter, contactPublicRouter } from "./contact";
 
 export { healthRouter } from "./health";
 export { docsRouter } from "./docs";
@@ -25,6 +27,7 @@ export const apiRouter = Router();
 
 // --- públicas ---
 apiRouter.use("/auth", authPublicRouter);
+apiRouter.use("/contact", contactPublicRouter);
 
 // --- a partir de aquí, autenticación obligatoria ---
 apiRouter.use(authenticate);
@@ -40,3 +43,5 @@ apiRouter.use("/sales", salesRouter);
 apiRouter.use("/audits", auditsRouter);
 apiRouter.use("/reports", reportsRouter);
 apiRouter.use("/financial", financialRouter);
+apiRouter.use("/chat", chatRouter);
+apiRouter.use("/contact-messages", contactMessagesRouter);

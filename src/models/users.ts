@@ -11,6 +11,8 @@ export type UserRow = {
   role: Role;
   tokenVersion: number;
   active: boolean;
+  email: string | null;
+  phone: string | null;
   createdAt: Date;
 };
 
@@ -22,6 +24,8 @@ export type UserResponse = {
   username: string;
   role: Role;
   active: boolean;
+  email: string | null;
+  phone: string | null;
   createdAt: string;
 };
 
@@ -32,6 +36,8 @@ export const toUserResponse = (row: UserRow): UserResponse => ({
   username: row.username,
   role: row.role,
   active: row.active,
+  email: row.email,
+  phone: row.phone,
   createdAt: row.createdAt.toISOString(),
 });
 
@@ -49,6 +55,26 @@ export const parseCreateUser = (body: unknown): CreateUserRequest => {
   const role = v.oneOf("role", ALL_ROLES);
   v.done();
   return { firstName: firstName!, lastName: lastName!, username: username!, password: password!, role: role! };
+};
+
+export const EMAIL_RULE = { max: 120, pattern: /^[^\s@]+@[^\s@]+\.[^\s@]+$/, patternMessage: "Correo inválido" };
+export const PHONE_RULE = { min: 7, max: 30, pattern: /^[0-9+()\s-]+$/, patternMessage: "Solo números, espacios, +, ( ) y guiones" };
+
+/** Mi perfil: nombre y contacto propios. `null` borra el correo o el teléfono; el usuario y el rol no se tocan aquí. */
+export type UpdateOwnProfileRequest = { firstName?: string | undefined; lastName?: string | undefined; email?: string | null | undefined; phone?: string | null | undefined };
+
+export const parseUpdateOwnProfile = (body: unknown): UpdateOwnProfileRequest => {
+  const v = createValidator(body);
+  const firstName = v.string("firstName", { min: 1, max: 80 }, false);
+  const lastName = v.string("lastName", { min: 1, max: 80 }, false);
+  // Enviar null o "" borra el dato opcional.
+  const data = typeof body === "object" && body !== null ? (body as Record<string, unknown>) : {};
+  const blank = (field: string) => v.isNull(field) || (typeof data[field] === "string" && (data[field] as string).trim() === "");
+  const email = blank("email") ? null : v.string("email", EMAIL_RULE, false);
+  const phone = blank("phone") ? null : v.string("phone", PHONE_RULE, false);
+  if (!["firstName", "lastName", "email", "phone"].some((f) => v.has(f))) v.custom("body", "Debe enviar al menos un campo a modificar");
+  v.done();
+  return { firstName, lastName, email: email === undefined ? undefined : email === null ? null : email.toLowerCase(), phone };
 };
 
 export type ChangePasswordRequest = { currentPassword: string; newPassword: string };
