@@ -1,11 +1,12 @@
 # Mi Tierrita API
 
-Backend REST de **Mi Tierrita SIG**, el sistema de información gerencial de un negocio de barrio:
-inventario con lotes y vencimientos, punto de venta, clientes con cartera, proveedores, usuarios y
-roles, auditoría, reportes y evaluación financiera del proyecto de ampliación.
+Backend REST de **Mi Tierrita SIG**, el sistema de información gerencial de una agropecuaria en Sahagún, Córdoba:
+inventario con lotes y vencimientos, punto de venta, clientes con cartera, proveedores, usuarios y roles, auditoría,
+reportes, evaluación financiera del proyecto de ampliación, chat del equipo, contactos de la página pública y **Tita**,
+la asistente con IA (Claude, de Anthropic).
 
-Este repositorio implementa la documentación técnica del proyecto (carpeta
-`6 Documentacion tecnica` del TCC): arquitectura del backend (01), requisitos (03), casos de uso (04),
+Este repositorio implementa la documentación técnica del Trabajo Colaborativo Contextualizado (carpeta
+`6 Documentacion tecnica`): arquitectura del backend (01), requisitos (03), casos de uso (04),
 modelo de datos (05), diseño de la API (06) e infraestructura del backend (08).
 
 ## Stack
@@ -19,6 +20,7 @@ modelo de datos (05), diseño de la API (06) e infraestructura del backend (08).
 | Esquema de base | Migraciones SQL versionadas en `migrations/` |
 | Documentación | OpenAPI 3.1 servido con Swagger UI en `/docs` |
 | Pruebas | `node:test` |
+| IA | SDK oficial de Anthropic (`@anthropic-ai/sdk`), opcional según `ANTHROPIC_API_KEY` |
 
 ## Puesta en marcha (local)
 
@@ -38,7 +40,7 @@ Comandos:
 | `pnpm dev` | Servidor con recarga (`tsx watch`) |
 | `pnpm build` / `pnpm start` | Compila a `build/` y ejecuta |
 | `pnpm typecheck` | `tsc --noEmit` |
-| `pnpm test` | Pruebas unitarias (no necesitan base de datos) |
+| `pnpm test` | Pruebas unitarias (no necesitan base de datos ni clave de IA) |
 | `pnpm db:migrate` / `pnpm db:status` | Aplica o lista migraciones |
 | `pnpm create-admin <usuario> <clave>` | Crea el primer ADMIN (no hay registro público) |
 | `docker compose up --build` | API + base de datos en contenedores |
@@ -73,13 +75,15 @@ src/
   controllers/     capa de presentación: un archivo por operación; valida la entrada, llama a la
                    lógica y traduce a respuesta HTTP (solo entiende de HTTP)
   business-logic/  reglas del dominio y SQL: un archivo por operación, agrupadas por entidad
+                   (ai/: Tita — herramientas de consulta y de acción, recomendaciones, borradores, facturas)
   models/          forma de las filas, DTOs de entrada/salida y funciones parseX() de validación
   data-sources/    pool de conexiones a PostgreSQL, transacciones y traducción de errores de la base
   common/          códigos de error, paginación, validador, fechas
   scripts/         migrador y creación del primer administrador
 migrations/        SQL numerado y versionado
 docs/openapi.yaml  contrato público de la API (todos los endpoints)
-tests/             pruebas unitarias (validación, errores, paginación, token, motor financiero)
+tests/             pruebas unitarias (validación, errores, paginación, token, motor financiero, auditoría,
+                   permisos y adjuntos de Tita)
 ```
 
 Una petición recorre `routes` → `controllers` → `business-logic` → `data-sources` (pool) → PostgreSQL.
@@ -94,7 +98,7 @@ Una petición recorre `routes` → `controllers` → `business-logic` → `data-
 3. **Errores como código de dominio.** La lógica lanza `domainError(ErrorCodes.X)` y el manejador
    único responde `{ "message": "<código>" }` con el estado HTTP correspondiente. Nunca un stack trace.
 4. **Auditoría automática.** El middleware registra cada escritura exitosa (usuario, método, recurso,
-   fecha); las rutas no auditan por su cuenta.
+   fecha y, con la cabecera `X-AI-Suggested: 1`, la marca `ai_suggested`); las rutas no auditan por su cuenta.
 5. **Listados uniformes.** `?page=` (base 1) y `?limit=` (10, máximo 100) responden
    `{ count, page, pages, items }`.
 6. **Los cálculos importantes los hace el servidor.** Totales de venta e indicadores financieros que
@@ -147,8 +151,8 @@ documentar en `docs/openapi.yaml` → migración si cambia el esquema.
 
 Los 44 endpoints del documento 06 están implementados y documentados en `/docs`. Las migraciones
 `0002_figma_v4` y `0003_chat_privado_presencia` agregan 9 más que pide el prototipo de escritorio v4.2 (Mi perfil,
-historial de reportes, chat del equipo con privados y presencia, y contactos del sitio); no estaban en el documento 06
-y quedan registrados aquí.
+historial de reportes, chat del equipo con privados y presencia, y contactos del sitio), y `0004_auditoria_sugerido_ia`
+acompaña las 5 rutas de Tita (`/ai`). Ninguno estaba en el documento 06; quedan registrados aquí.
 
 | Módulo | Endpoints | Casos de uso |
 |---|---|---|
@@ -168,6 +172,17 @@ y quedan registrados aquí.
 | Contactos del sitio | `POST /contact` (público, 5 por hora por IP, campo trampa `website`), `GET /contact-messages`, `PATCH /contact-messages/:id` | prototipo 12 |
 
 ### Reglas de negocio implementadas
+
+- **Hora del negocio.** "Hoy", los cortes de reportes y los vencimientos se cuentan en `BUSINESS_TZ`
+  (America/Bogota); cada sesión de PostgreSQL abre en esa zona, así una venta de las 8 p. m. es del mismo día.
+- **Stock vendible.** Cada producto trae `stock` (físico, incluye lotes vencidos aún en bodega) y `availableStock`
+  (lotes no vencidos): lo que FEFO puede vender hoy. Un lote que ya llega vencido se rechaza con 400.
+- **Búsqueda.** Clientes y productos se buscan sin importar tildes ni mayúsculas ("maria perez" encuentra a "María Pérez").
+- **Tita.** Las herramientas de consulta usan la misma lógica y los mismos roles que sus endpoints. Las de acción no
+  escriben: validan con el `parseX` del endpoint y devuelven la petición exacta; la app la ejecuta contra la API real
+  solo si la persona confirma. Las recomendaciones del día (reponer, rotar, cobrar, sin rotación) se calculan en SQL sin
+  IA; la IA solo las prioriza y redacta. El contenido de imágenes y documentos se trata como datos, nunca como
+  instrucciones. Las rutas `/ai` tienen un tope de 40 consultas cada 5 minutos por persona.
 
 - **Chat y presencia.** El canal general tiene `recipient_id` nulo; un mensaje privado lo lleva y solo lo ven sus
   dos participantes. Consultar una conversación la marca como leída (`chat_reads`). Cada petición autenticada
@@ -200,6 +215,8 @@ y quedan registrados aquí.
   el filtro `?userId=` de `GET /sales` permite restringirlo desde el frontend mientras se decide.
 - Si una venta puede consumir lotes ya vencidos. Hoy el FEFO los salta y quedan visibles en
   `GET /batches/expiring` y en el reporte de inventario para darles de baja.
+- Desactivar cuentas y cambiar roles: no hay endpoint todavía (pendiente P-01 de la auditoría).
+- Si Bodega puede crear y editar proveedores: la API lo permite y la interfaz no lo ofrece (pendiente P-02).
 
 ## Producción
 
