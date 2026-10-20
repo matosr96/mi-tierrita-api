@@ -4,8 +4,11 @@ import { getAuth } from "../security/index";
 
 const WRITE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
-/** Rutas POST que no cambian datos (consultas al asistente): no son escrituras y no se auditan. */
-const READ_ONLY_POSTS = /\/ai\//;
+/**
+ * Rutas POST que no cambian datos de negocio y no se auditan: consultas al asistente y el acuse de lectura del chat
+ * (se envía cada vez que alguien ve un mensaje; auditarlo llenaría la bitácora sin aportar nada).
+ */
+const READ_ONLY_POSTS = /\/ai\/|\/chat\/read$/;
 
 /**
  * Middleware de auditoría (RF-07.1): registra automáticamente cada escritura exitosa

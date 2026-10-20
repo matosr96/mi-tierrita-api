@@ -15,6 +15,7 @@ export const ErrorCodes = {
   SALE_NOT_FOUND: "606",
   SCENARIO_NOT_FOUND: "607",
   CONTACT_MESSAGE_NOT_FOUND: "608",
+  CHAT_MESSAGE_NOT_FOUND: "609",
 
   INVALID_CREDENTIALS: "610",
   TOKEN_INVALID: "611",
@@ -54,6 +55,7 @@ export const httpStatusByCode: Record<ErrorCode, number> = {
   "606": 404,
   "607": 404,
   "608": 404,
+  "609": 404,
   "610": 401,
   "611": 401,
   "612": 401,

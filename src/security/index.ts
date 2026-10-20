@@ -3,3 +3,4 @@ export * from "./password";
 export * from "./token";
 export * from "./authenticate";
 export * from "./authorize";
+export * from "./session-alive";

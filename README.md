@@ -130,6 +130,7 @@ documentar en `docs/openapi.yaml` → migración si cambia el esquema.
 | 606 | Venta no encontrada | 404 |
 | 607 | Escenario financiero no encontrado | 404 |
 | 608 | Contacto del sitio no encontrado | 404 |
+| 609 | Mensaje o adjunto del chat no encontrado (o de un privado ajeno: no se revela que exista) | 404 |
 | 610 | Credenciales inválidas | 401 |
 | 611 | Token ausente o inválido | 401 |
 | 612 | Usuario inactivo | 401 |
@@ -151,8 +152,9 @@ documentar en `docs/openapi.yaml` → migración si cambia el esquema.
 
 Los 44 endpoints del documento 06 están implementados y documentados en `/docs`. Las migraciones
 `0002_figma_v4` y `0003_chat_privado_presencia` agregan 9 más que pide el prototipo de escritorio v4.2 (Mi perfil,
-historial de reportes, chat del equipo con privados y presencia, y contactos del sitio), y `0004_auditoria_sugerido_ia`
-acompaña las 5 rutas de Tita (`/ai`). Ninguno estaba en el documento 06; quedan registrados aquí.
+historial de reportes, chat del equipo con privados y presencia, y contactos del sitio), `0004_auditoria_sugerido_ia`
+acompaña las 5 rutas de Tita (`/ai`) `0005_chat_acuses_hilos_adjuntos` amplía el chat con 11 rutas más (acuses,
+hilos, fijados, búsqueda, adjuntos y avisos en vivo) y `0006_chat_editar_eliminar` agrega 2 (editar y eliminar). Ninguno estaba en el documento 06; quedan registrados aquí.
 
 | Módulo | Endpoints | Casos de uso |
 |---|---|---|
@@ -167,7 +169,7 @@ acompaña las 5 rutas de Tita (`/ai`). Ninguno estaba en el documento 06; quedan
 | Finanzas | `POST/GET /financial/scenarios`, `GET .../compare`, `GET .../:id`, `.../amortization`, `.../sensitivity`, `.../sensitivity/bivariate`, `.../tornado` | CU-14 a CU-17 |
 | Auditoría | `GET /audits` | CU-18 |
 | Reportes | `GET /reports/sales` (incluye `averageTicket`), `GET /reports/inventory`, `GET /reports/receivables`, `GET/POST /reports/exports` (historial de descargas) | CU-19, CU-20, prototipo 09 |
-| Chat del equipo | `GET/POST /chat/messages` (canal general o privado con `?with=` / `recipientId`; `?after=` para pedir solo lo nuevo), `GET /chat/team` (en línea, no leídos) | prototipo 11 |
+| Chat del equipo | `GET/POST /chat/messages` (canal general o privado con `?with=` / `recipientId`; hilo con `?thread=` / `threadRootId`; cita con `replyToId`; `?after=`, `?before=` y `?around=` para lo nuevo, el historial o saltar a un mensaje; `clientId` evita duplicados), `PATCH /chat/messages/:id` (editar, solo el autor), `DELETE /chat/messages/:id` (eliminar: el autor; en #general también ADMIN), `GET /chat/messages/state?ids=`, `GET /chat/messages/:id/receipts` (solo el autor), `PUT/DELETE /chat/messages/:id/pin`, `GET /chat/pins`, `POST /chat/read`, `GET /chat/search`, `POST /chat/attachments` (binario, 10 MB), `GET /chat/attachments/:id`, `GET /chat/stream` (avisos en vivo, SSE), `GET /chat/team` (en línea, no leídos, menciones) | prototipo 11 + extensión |
 | Tita (asistente de IA) | `GET /ai/status`, `GET /ai/briefing` (recomendaciones del rol + párrafo de IA), `POST /ai/chat` (herramientas de consulta y de acción con los permisos del rol; acepta adjuntos: imagen, PDF o texto; hasta 24 MB), `POST /ai/drafts`, `POST /ai/invoice` (ADMIN, WAREHOUSE). Las herramientas de acción no escriben: validan con el mismo `parseX` del endpoint y devuelven la petición exacta; la app la ejecuta contra el endpoint real solo si la persona confirma, con `X-AI-Suggested: 1` (auditoría `ai_suggested`). No crea usuarios ni maneja contraseñas. Tope de 40 consultas cada 5 min por persona; las rutas `/ai` no se auditan porque no escriben. La búsqueda de clientes y productos ignora tildes y mayúsculas | extensión |
 | Contactos del sitio | `POST /contact` (público, 5 por hora por IP, campo trampa `website`), `GET /contact-messages`, `PATCH /contact-messages/:id` | prototipo 12 |
 
@@ -185,9 +187,30 @@ acompaña las 5 rutas de Tita (`/ai`). Ninguno estaba en el documento 06; quedan
   instrucciones. Las rutas `/ai` tienen un tope de 40 consultas cada 5 minutos por persona.
 
 - **Chat y presencia.** El canal general tiene `recipient_id` nulo; un mensaje privado lo lleva y solo lo ven sus
-  dos participantes. Consultar una conversación la marca como leída (`chat_reads`). Cada petición autenticada
-  actualiza `users.last_seen_at` (como mucho cada 20 s, fuera de la auditoría); en línea = actividad en los últimos
-  90 s sin un cierre de sesión posterior.
+  dos participantes. Cada petición autenticada actualiza `users.last_seen_at` (como mucho cada 20 s, fuera de la
+  auditoría); en línea = actividad en los últimos 90 s sin un cierre de sesión posterior.
+  - **Acuses (`chat_receipts`).** Al enviar, cada destinatario (el equipo activo en #general; la otra persona en un
+    privado) recibe un acuse. *Entregado* cuando su app recibe el mensaje (aviso en vivo, consulta del equipo o de la
+    conversación); *visto* cuando tiene la conversación a la vista (`POST /chat/read`, que no se audita). Los chulitos
+    del autor: enviado / entregado a todos / visto por todos (las cuentas desactivadas no cuentan). El detalle por
+    persona (`/receipts`) solo lo consulta el autor.
+  - **Citas, hilos y respuesta privada.** Se cita un mensaje de la misma conversación; la única excepción es responder
+    por privado al autor de un mensaje de #general (la respuesta no aparece en el canal). Un hilo se abre sobre un
+    mensaje de la conversación principal (sin hilos anidados) y sus respuestas no salen en ella; la raíz trae el resumen
+    (respuestas, sin leer, participantes).
+  - **Fijados.** En #general fija y desfija solo ADMIN; en un privado, cualquiera de los dos. Máximo 10 por
+    conversación; las respuestas de hilos no se fijan.
+  - **Menciones.** `@usuario` (y `@todos` / `@equipo` en #general) solo cuentan para quien puede ver el mensaje.
+  - **Adjuntos.** Fotos, PDF, Excel, Word, CSV y texto, hasta 10 MB y 5 por mensaje; se guardan en la base
+    (`chat_attachments`). Solo los descarga quien puede ver el mensaje; los subidos y no enviados se borran a las 24 h.
+  - **Editar y eliminar.** Solo el autor edita (queda `editedAt`; las menciones se recalculan). Elimina el autor y,
+    en #general, también ADMIN; el mensaje conserva su lugar, sus acuses y su hilo, pero pierde texto, menciones,
+    adjuntos (también el archivo) y fijado, y deja de contar como no leído. No se cita ni se busca un eliminado.
+  - **Sin duplicados.** La app manda un `clientId` (UUID) por envío; un reintento devuelve el mismo mensaje.
+  - **Tiempo real.** `GET /chat/stream` (Server-Sent Events, token en la cabecera) avisa de mensajes nuevos, cambios
+    de acuses, fijados y lecturas solo a quien puede ver la conversación; el aviso no trae la conversación, la app la
+    pide por REST. Entre instancias viaja por `LISTEN/NOTIFY` de PostgreSQL (`chat_events`); si esa conexión se cae, se
+    entrega en la instancia local. La conexión se corta si la sesión vence o se cierra.
 
 - **FEFO (RF-02.6).** Una venta descuenta del lote con vencimiento más próximo, saltando los lotes ya
   vencidos; puede consumir varios lotes y deja la asignación en `sale_line_batch_allocations`. Si no

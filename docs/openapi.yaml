@@ -664,32 +664,180 @@ paths:
   /chat/messages:
     get:
       tags: [Chat del equipo]
-      summary: Mensajes de una conversación en orden cronológico — cualquier rol
+      summary: Mensajes de una conversación o de un hilo en orden cronológico — cualquier rol
       description: >-
-        Sin `with`, el canal general; con `with`, la conversación privada con esa persona (603 si no existe).
-        Sin `after`, los últimos `limit`; con `after`, solo los posteriores a ese id. Consultar marca la conversación
-        como leída hasta el último mensaje devuelto.
+        Sin `with`, el canal general; con `with`, el privado con esa persona (603 si no existe); con `thread`, las
+        respuestas de ese hilo (trae además `root`). La conversación principal no incluye respuestas de hilos.
+        Sin cursor, los últimos `limit`; `after` = lo posterior, `before` = lo anterior (historial), `around` = una
+        ventana alrededor de ese mensaje (609 si no es de la conversación). Consultar cuenta como "entregado", no como
+        "visto".
       parameters:
         - { name: with, in: query, schema: { type: integer, minimum: 1 }, description: Id de la otra persona (mensajes privados) }
+        - { name: thread, in: query, schema: { type: integer, minimum: 1 }, description: Id del mensaje que abre el hilo }
         - { name: after, in: query, schema: { type: integer, minimum: 1 } }
+        - { name: before, in: query, schema: { type: integer, minimum: 1 } }
+        - { name: around, in: query, schema: { type: integer, minimum: 1 } }
         - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 50 } }
       responses:
-        "200": { description: Mensajes, content: { application/json: { schema: { type: object, properties: { items: { type: array, items: { $ref: "#/components/schemas/ChatMessage" } } } } } } }
+        "200": { description: Mensajes, content: { application/json: { schema: { $ref: "#/components/schemas/ChatPage" } } } }
+        "404": { description: "603 persona inexistente · 609 mensaje inexistente o de un privado ajeno", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
     post:
       tags: [Chat del equipo]
-      summary: Publicar un mensaje en el canal general o privado (recipientId) — cualquier rol
-      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [body], properties: { body: { type: string, maxLength: 1000 }, recipientId: { type: integer, minimum: 1, description: "Destinatario de un mensaje privado; sin él, canal general" } } } } } }
+      summary: Publicar un mensaje (canal general, privado, hilo, cita, adjuntos) — cualquier rol
+      description: >-
+        La cita (`replyToId`) y el hilo (`threadRootId`) deben ser de la misma conversación; la excepción es la
+        respuesta por privado: un privado al autor de un mensaje de #general puede citarlo y no se publica en el canal.
+        Sin hilos dentro de hilos. Cuerpo vacío solo con adjuntos (ya subidos, propios y sin usar). Con el mismo
+        `clientId` (UUID) se devuelve el mensaje ya guardado: un reintento no duplica. Reconoce `@usuario` y, en
+        #general, `@todos` / `@equipo`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                body: { type: string, maxLength: 1000 }
+                recipientId: { type: integer, minimum: 1, description: "Destinatario de un mensaje privado; sin él, canal general" }
+                replyToId: { type: integer, minimum: 1 }
+                threadRootId: { type: integer, minimum: 1 }
+                attachmentIds: { type: array, maxItems: 5, items: { type: integer, minimum: 1 } }
+                clientId: { type: string, format: uuid }
       responses:
-        "201": { description: Publicado, content: { application/json: { schema: { $ref: "#/components/schemas/ChatMessage" } } } }
+        "201": { description: Publicado (o el ya publicado con ese clientId), content: { application/json: { schema: { $ref: "#/components/schemas/ChatMessage" } } } }
         "400": { $ref: "#/components/responses/Validation" }
-        "404": { description: "603 destinatario inexistente o inactivo", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+        "404": { description: "603 destinatario inexistente o inactivo · 609 cita u hilo inexistente o ajeno", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+  /chat/messages/{id}:
+    patch:
+      tags: [Chat del equipo]
+      summary: Editar el texto de un mensaje propio — solo el autor
+      description: Queda `editedAt`; las menciones se recalculan. Vacío solo si el mensaje lleva adjuntos; un eliminado no se edita.
+      parameters: [{ name: id, in: path, required: true, schema: { type: integer } }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [body], properties: { body: { type: string, maxLength: 1000 } } } } } }
+      responses:
+        "200": { description: Mensaje editado, content: { application/json: { schema: { $ref: "#/components/schemas/ChatMessage" } } } }
+        "400": { $ref: "#/components/responses/Validation" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { description: "609", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+    delete:
+      tags: [Chat del equipo]
+      summary: "Eliminar para todos — el autor; en #general también ADMIN"
+      description: Conserva el lugar, los acuses y el hilo; borra texto, menciones, adjuntos y fijado (`deleted` = true).
+      parameters: [{ name: id, in: path, required: true, schema: { type: integer } }]
+      responses:
+        "200": { description: Mensaje eliminado, content: { application/json: { schema: { $ref: "#/components/schemas/ChatMessage" } } } }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { description: "609", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+  /chat/messages/state:
+    get:
+      tags: [Chat del equipo]
+      summary: Estado actual de mensajes ya cargados (acuses, fijado, hilo) — cualquier rol
+      parameters:
+        - { name: ids, in: query, required: true, schema: { type: string }, description: "Hasta 100 ids separados por coma; los no visibles se omiten" }
+      responses:
+        "200": { description: Mensajes visibles, content: { application/json: { schema: { type: object, properties: { items: { type: array, items: { $ref: "#/components/schemas/ChatMessage" } } } } } } }
+  /chat/messages/{id}/receipts:
+    get:
+      tags: [Chat del equipo]
+      summary: Quién leyó, a quién le llegó y quién falta — solo el autor del mensaje
+      parameters: [{ name: id, in: path, required: true, schema: { type: integer } }]
+      responses:
+        "200": { description: Detalle, content: { application/json: { schema: { $ref: "#/components/schemas/ChatReceipts" } } } }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { description: "609", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+  /chat/messages/{id}/pin:
+    put:
+      tags: [Chat del equipo]
+      summary: "Fijar — en #general solo ADMIN; en un privado, sus participantes (máx. 10 por conversación)"
+      parameters: [{ name: id, in: path, required: true, schema: { type: integer } }]
+      responses:
+        "200": { description: Mensaje fijado, content: { application/json: { schema: { $ref: "#/components/schemas/ChatMessage" } } } }
+        "400": { $ref: "#/components/responses/Validation" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { description: "609", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+    delete:
+      tags: [Chat del equipo]
+      summary: Desfijar — mismas reglas que fijar
+      parameters: [{ name: id, in: path, required: true, schema: { type: integer } }]
+      responses:
+        "200": { description: Mensaje sin fijar, content: { application/json: { schema: { $ref: "#/components/schemas/ChatMessage" } } } }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { description: "609", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+  /chat/pins:
+    get:
+      tags: [Chat del equipo]
+      summary: Mensajes fijados del canal general o del privado (`with`) — cualquier rol
+      parameters: [{ name: with, in: query, schema: { type: integer, minimum: 1 } }]
+      responses:
+        "200": { description: Fijados, el más reciente primero, content: { application/json: { schema: { type: object, properties: { items: { type: array, items: { $ref: "#/components/schemas/ChatMessage" } } } } } } }
+  /chat/read:
+    post:
+      tags: [Chat del equipo]
+      summary: Marcar como visto (conversación o hilo, hasta un mensaje) — cualquier rol; no se audita
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                with: { type: integer, minimum: 1, description: "Privado con esa persona; sin él, #general" }
+                threadRootId: { type: integer, minimum: 1, description: Solo las respuestas de ese hilo }
+                upTo: { type: integer, minimum: 1, description: "Hasta este mensaje (incluido); sin él, todo" }
+                includeThreads: { type: boolean, description: "También las respuestas de todos los hilos de la conversación" }
+      responses:
+        "200": { description: Acuses actualizados, content: { application/json: { schema: { type: object, properties: { updated: { type: integer } } } } } }
+  /chat/search:
+    get:
+      tags: [Chat del equipo]
+      summary: Buscar en el chat (texto, autor o nombre de adjunto; sin tildes) — solo lo que la persona puede ver
+      parameters:
+        - { name: q, in: query, required: true, schema: { type: string, minLength: 2, maxLength: 100 } }
+        - { name: with, in: query, schema: { type: integer, minimum: 1 }, description: Solo ese privado }
+        - { name: general, in: query, schema: { type: boolean }, description: "Solo #general" }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 60, default: 30 } }
+      responses:
+        "200": { description: Coincidencias (incluye respuestas de hilos), content: { application/json: { schema: { type: object, properties: { items: { type: array, items: { $ref: "#/components/schemas/ChatMessage" } } } } } } }
+        "400": { $ref: "#/components/responses/Validation" }
+  /chat/attachments:
+    post:
+      tags: [Chat del equipo]
+      summary: Subir un adjunto para el próximo mensaje — cualquier rol
+      description: >-
+        Cuerpo binario de hasta 10 MB; tipo en `Content-Type` (fotos JPEG/PNG/WebP/GIF, PDF, Excel, Word, CSV o texto)
+        y nombre en `X-File-Name` (codificado con encodeURIComponent). Queda a nombre de quien lo sube hasta que lo envíe;
+        si no lo envía en 24 h se borra.
+      parameters: [{ name: X-File-Name, in: header, required: true, schema: { type: string } }]
+      requestBody: { required: true, content: { application/octet-stream: { schema: { type: string, format: binary } } } }
+      responses:
+        "201": { description: Subido, content: { application/json: { schema: { $ref: "#/components/schemas/ChatAttachment" } } } }
+        "400": { $ref: "#/components/responses/Validation" }
+  /chat/attachments/{id}:
+    get:
+      tags: [Chat del equipo]
+      summary: Descargar un adjunto — quien puede ver el mensaje que lo lleva
+      parameters: [{ name: id, in: path, required: true, schema: { type: integer } }]
+      responses:
+        "200": { description: El archivo (las fotos en línea; el resto como descarga), content: { application/octet-stream: { schema: { type: string, format: binary } } } }
+        "404": { description: "609", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+  /chat/stream:
+    get:
+      tags: [Chat del equipo]
+      summary: Avisos en vivo del chat (Server-Sent Events) — cualquier rol
+      description: >-
+        `text/event-stream` con eventos `data: <json>`: `ready` al abrir; `message` (id, peerId, threadRootId, autor,
+        vista previa, mentionsMe); `update` (ids cuyo estado cambió: acuses, fijado, hilo); `team` (contadores propios);
+        `bye` cuando la sesión deja de ser válida. Solo llegan los de conversaciones que la persona puede ver. Un
+        comentario `: ping` cada 25 s mantiene viva la conexión. Recibir un mensaje por aquí cuenta como entregado.
+      responses:
+        "200": { description: Flujo de eventos, content: { text/event-stream: { schema: { type: string } } } }
   /chat/team:
     get:
       tags: [Chat del equipo]
-      summary: Equipo del chat — presencia, no leídos y último mensaje por conversación — cualquier rol
+      summary: Equipo del chat — presencia, no leídos, menciones y último mensaje por conversación — cualquier rol
       description: >-
-        En línea = petición autenticada en los últimos 90 segundos sin cierre de sesión posterior. Cada petición
-        autenticada actualiza `last_seen_at` (como mucho cada 20 s); no se audita.
+        En línea = petición autenticada en los últimos 90 segundos sin cierre de sesión posterior. Los no leídos
+        incluyen respuestas de hilos. Consultarlo cuenta como "entregado".
       responses:
         "200":
           description: Canal general y personas activas (sin incluir a quien consulta)
@@ -699,7 +847,8 @@ paths:
                 type: object
                 properties:
                   onlineCount: { type: integer }
-                  general: { type: object, properties: { unread: { type: integer }, lastMessage: { $ref: "#/components/schemas/ChatPreview" } } }
+                  unreadTotal: { type: integer }
+                  general: { type: object, properties: { unread: { type: integer }, mentions: { type: integer }, lastMessage: { $ref: "#/components/schemas/ChatPreview" } } }
                   members:
                     type: array
                     items:
@@ -713,6 +862,7 @@ paths:
                         online: { type: boolean }
                         lastSeenAt: { type: [string, "null"], format: date-time }
                         unread: { type: integer }
+                        mentions: { type: integer }
                         lastMessage: { $ref: "#/components/schemas/ChatPreview" }
 
   # ------------------------------------------------------------ Contactos del sitio
@@ -923,10 +1073,17 @@ components:
         format: { type: string, enum: [pdf, xlsx] }
         description: { type: string }
         createdAt: { type: string, format: date-time }
+    ChatPerson:
+      type: object
+      properties: { id: { type: integer }, firstName: { type: string }, lastName: { type: string } }
+    ChatAttachment:
+      type: object
+      properties: { id: { type: integer }, name: { type: string }, mime: { type: string }, size: { type: integer } }
     ChatMessage:
       type: object
       properties:
         id: { type: integer }
+        clientId: { type: [string, "null"], format: uuid }
         userId: { type: integer }
         username: { type: string }
         firstName: { type: string }
@@ -935,6 +1092,61 @@ components:
         recipientId: { type: [integer, "null"], description: "null en el canal general" }
         body: { type: string }
         createdAt: { type: string, format: date-time }
+        threadRootId: { type: [integer, "null"], description: "Respuesta dentro de ese hilo" }
+        editedAt: { type: [string, "null"], format: date-time }
+        deleted: { type: boolean, description: "Eliminado: sin texto ni adjuntos" }
+        replyTo:
+          type: [object, "null"]
+          properties:
+            id: { type: integer }
+            author: { $ref: "#/components/schemas/ChatPerson" }
+            body: { type: string }
+            attachments: { type: integer }
+            inThread: { type: boolean }
+            privateReply: { type: boolean, description: "Cita de #general en una respuesta privada" }
+            deleted: { type: boolean }
+        thread:
+          type: [object, "null"]
+          description: Solo en el mensaje que abre un hilo con respuestas
+          properties:
+            replies: { type: integer }
+            unread: { type: integer }
+            lastReplyAt: { type: string, format: date-time }
+            participants: { type: array, items: { $ref: "#/components/schemas/ChatPerson" } }
+        pinned: { type: [object, "null"], properties: { at: { type: string, format: date-time }, by: { type: object, properties: { id: { type: integer }, name: { type: string } } } } }
+        mentions: { type: array, items: { allOf: [{ $ref: "#/components/schemas/ChatPerson" }, { type: object, properties: { username: { type: string } } }] } }
+        attachments: { type: array, items: { $ref: "#/components/schemas/ChatAttachment" } }
+        receipts:
+          type: [object, "null"]
+          description: Solo en los mensajes propios (las cuentas desactivadas no cuentan)
+          properties:
+            status: { type: string, enum: [sent, delivered, read] }
+            total: { type: integer }
+            delivered: { type: integer }
+            read: { type: integer }
+        unread: { type: boolean, description: "Mensaje ajeno que quien consulta no ha visto" }
+        mentionsMe: { type: boolean }
+    ChatPage:
+      type: object
+      properties:
+        items: { type: array, items: { $ref: "#/components/schemas/ChatMessage" } }
+        hasMoreBefore: { type: boolean }
+        hasMoreAfter: { type: boolean }
+        root: { $ref: "#/components/schemas/ChatMessage" }
+    ChatReceiptEntry:
+      type: object
+      properties:
+        user: { allOf: [{ $ref: "#/components/schemas/ChatPerson" }, { type: object, properties: { role: { $ref: "#/components/schemas/Role" }, active: { type: boolean } } }] }
+        deliveredAt: { type: [string, "null"], format: date-time }
+        readAt: { type: [string, "null"], format: date-time }
+    ChatReceipts:
+      type: object
+      properties:
+        messageId: { type: integer }
+        status: { type: string, enum: [sent, delivered, read] }
+        read: { type: array, items: { $ref: "#/components/schemas/ChatReceiptEntry" } }
+        delivered: { type: array, items: { $ref: "#/components/schemas/ChatReceiptEntry" } }
+        pending: { type: array, items: { $ref: "#/components/schemas/ChatReceiptEntry" } }
     ChatPreview:
       type: [object, "null"]
       properties:

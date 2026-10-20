@@ -44,7 +44,8 @@ test("estados y exportaciones solo aceptan los valores conocidos", () => {
 });
 
 test("parseCreateChatMessage acepta un destinatario opcional para mensajes privados", () => {
-  assert.deepEqual(parseCreateChatMessage({ body: "Hola" }), { body: "Hola", recipientId: null });
-  assert.deepEqual(parseCreateChatMessage({ body: "Hola", recipientId: 3 }), { body: "Hola", recipientId: 3 });
+  const base = { replyToId: null, threadRootId: null, attachmentIds: [], clientId: null };
+  assert.deepEqual(parseCreateChatMessage({ body: "Hola" }), { body: "Hola", recipientId: null, ...base });
+  assert.deepEqual(parseCreateChatMessage({ body: "Hola", recipientId: 3 }), { body: "Hola", recipientId: 3, ...base });
   assert.deepEqual(paths400(() => parseCreateChatMessage({ body: "Hola", recipientId: 0 })), ["recipientId"]);
 });
