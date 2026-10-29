@@ -23,10 +23,16 @@ tags:
   - { name: Proveedores }
   - { name: Finanzas }
   - { name: Auditoría }
+  - { name: Búsqueda }
+  - { name: Comentarios }
   - { name: Reportes }
   - { name: Chat del equipo }
   - { name: Contactos del sitio }
+  - { name: Biblioteca }
   - { name: Asistente de IA }
+  - { name: Alarmas y avisos }
+  - { name: Calendario }
+  - { name: Web Push }
 
 paths:
   # ------------------------------------------------------------ Autenticación
@@ -136,6 +142,46 @@ paths:
       responses:
         "200": { description: Perfil actualizado, content: { application/json: { schema: { $ref: "#/components/schemas/User" } } } }
         "400": { $ref: "#/components/responses/Validation" }
+
+  /users/me/avatar:
+    put:
+      tags: [Usuarios]
+      summary: Guardar mi foto de perfil — cualquier rol
+      description: Cuerpo binario JPEG, PNG o WebP de hasta 1 MB (la app la reduce a 256×256); tipo en `Content-Type`.
+      requestBody: { required: true, content: { image/jpeg: { schema: { type: string, format: binary } }, image/png: { schema: { type: string, format: binary } }, image/webp: { schema: { type: string, format: binary } } } }
+      responses:
+        "200": { description: Usuario con hasAvatar y avatarUpdatedAt, content: { application/json: { schema: { $ref: "#/components/schemas/User" } } } }
+        "400": { $ref: "#/components/responses/Validation" }
+    delete:
+      tags: [Usuarios]
+      summary: Quitar mi foto de perfil — cualquier rol
+      responses:
+        "200": { description: Usuario sin foto, content: { application/json: { schema: { $ref: "#/components/schemas/User" } } } }
+  /users/{id}/avatar:
+    get:
+      tags: [Usuarios]
+      summary: Foto de perfil de una persona — cualquier rol
+      description: "`Cache-Control: private, max-age=300` y `ETag` derivado de `avatarUpdatedAt` (responde 304 con `If-None-Match`)."
+      parameters: [{ name: id, in: path, required: true, schema: { type: integer } }]
+      responses:
+        "200": { description: La foto, content: { image/jpeg: { schema: { type: string, format: binary } }, image/png: { schema: { type: string, format: binary } }, image/webp: { schema: { type: string, format: binary } } } }
+        "304": { description: Sin cambios }
+        "404": { description: "603 usuario no encontrado · 691 sin foto", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+
+  /users/directory:
+    get:
+      tags: [Usuarios]
+      summary: Directorio de personas (ficha con rol, contacto y presencia) — cualquier rol
+      description: >-
+        Brief 2.5, punto 30. Todas las cuentas activas con rol, correo, teléfono, foto y presencia (misma regla del
+        panel «Equipo» del chat: petición en los últimos 90 segundos sin cierre de sesión posterior). Solo ADMIN ve
+        además las cuentas inactivas, marcadas con `active: false`.
+      responses:
+        "200":
+          description: Personas del directorio (activas primero, luego por nombre)
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/DirectoryEntry" } }
 
   # ------------------------------------------------------------ Categorías
   /categories:
@@ -553,6 +599,89 @@ paths:
       responses:
         "200": { description: Listado paginado (más recientes primero), content: { application/json: { schema: { $ref: "#/components/schemas/AuditPage" } } } }
 
+  /audits/entity/{entity}/{id}:
+    get:
+      tags: [Auditoría]
+      summary: Línea de tiempo de un registro (brief 2.5, punto 33) — ADMIN
+      description: Escrituras que tocaron un registro (quién, cuándo, método y `changes`), de la más reciente a la más antigua.
+      parameters:
+        - { name: entity, in: path, required: true, schema: { type: string, example: customers }, description: "Recurso raíz de la ruta: products, customers, sales, suppliers…" }
+        - { $ref: "#/components/parameters/id" }
+        - { $ref: "#/components/parameters/page" }
+        - { $ref: "#/components/parameters/limit" }
+      responses:
+        "200": { description: Listado paginado, content: { application/json: { schema: { $ref: "#/components/schemas/AuditPage" } } } }
+        "400": { $ref: "#/components/responses/Validation" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  # ------------------------------------------------------------ Búsqueda
+  /search:
+    get:
+      tags: [Búsqueda]
+      summary: Búsqueda global para Ctrl+K (brief 2.5, punto 29) — todos los roles
+      description: |
+        Hasta 6 resultados por grupo, sin tildes ni mayúsculas, solo registros activos. Solo vienen los grupos que el
+        rol puede ver: `products` y `people` todos; `customers` ADMIN y SALES; `suppliers` ADMIN y WAREHOUSE.
+      parameters:
+        - { name: q, in: query, required: true, schema: { type: string, minLength: 2, maxLength: 100 }, description: Texto a buscar (mínimo 2 caracteres) }
+      responses:
+        "200":
+          description: Resultados por grupo
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  products: { type: array, items: { type: object, properties: { id: { type: integer }, name: { type: string }, sku: { type: string }, availableStock: { type: integer }, salePrice: { type: number } } } }
+                  customers: { type: array, items: { type: object, properties: { id: { type: integer }, name: { type: string }, documentId: { type: string }, balance: { type: number } } } }
+                  people: { type: array, items: { type: object, properties: { id: { type: integer }, firstName: { type: string }, lastName: { type: string }, username: { type: string }, role: { type: string } } }, description: Sin correo ni teléfono }
+                  suppliers: { type: array, items: { type: object, properties: { id: { type: integer }, name: { type: string } } } }
+        "400": { $ref: "#/components/responses/Validation" }
+
+  # ------------------------------------------------------------ Comentarios
+  /comments:
+    get:
+      tags: [Comentarios]
+      summary: Comentarios de un registro (brief 2.5, punto 33) — todos los roles
+      description: Cada rol solo lee los registros que puede ver (products y batches todos; customers y sales ADMIN y SALES; suppliers ADMIN y WAREHOUSE); si no, 613.
+      parameters:
+        - { name: entity, in: query, required: true, schema: { $ref: "#/components/schemas/CommentEntity" } }
+        - { name: entityId, in: query, required: true, schema: { type: integer, minimum: 1 } }
+      responses:
+        "200": { description: Comentarios vivos en orden cronológico, content: { application/json: { schema: { type: object, properties: { items: { type: array, items: { $ref: "#/components/schemas/Comment" } } } } } } }
+        "400": { $ref: "#/components/responses/Validation" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      tags: [Comentarios]
+      summary: Comentar un registro, opcionalmente respondiendo a otro comentario — todos los roles
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [entity, entityId, body]
+              properties:
+                entity: { $ref: "#/components/schemas/CommentEntity" }
+                entityId: { type: integer, minimum: 1 }
+                body: { type: string, minLength: 1, maxLength: 1000 }
+                replyToId: { type: integer, minimum: 1, description: Comentario del mismo registro al que responde }
+      responses:
+        "201": { description: Comentario creado, content: { application/json: { schema: { $ref: "#/components/schemas/Comment" } } } }
+        "400": { $ref: "#/components/responses/Validation" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { description: "688 el registro no existe · 685 el comentario al que responde no existe", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+        "409": { description: "686 el comentario al que responde es de otro registro o se eliminó", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+  /comments/{id}:
+    delete:
+      tags: [Comentarios]
+      summary: Eliminar un comentario (borrado lógico) — el autor o ADMIN
+      parameters: [{ $ref: "#/components/parameters/id" }]
+      responses:
+        "204": { description: Eliminado }
+        "403": { description: "687 solo el autor o la administración", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+        "404": { description: "685 el comentario no existe", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+
   # ------------------------------------------------------------ Reportes
   /reports/sales:
     get:
@@ -583,8 +712,8 @@ paths:
                     type: array
                     items:
                       oneOf:
-                        - { type: object, properties: { date: { type: string }, salesCount: { type: integer }, units: { type: integer }, total: { type: number } } }
-                        - { type: object, properties: { productId: { type: integer }, productName: { type: string }, sku: { type: string }, salesCount: { type: integer }, units: { type: integer }, total: { type: number } } }
+                        - { type: object, properties: { date: { type: string }, salesCount: { type: integer }, units: { type: integer }, total: { type: number }, cashTotal: { type: number }, creditTotal: { type: number }, sourceIds: { type: array, items: { type: integer }, description: "Hasta 20 ids de las ventas que componen la fila (trazabilidad)" }, sourceCount: { type: integer } } }
+                        - { type: object, properties: { productId: { type: integer }, productName: { type: string }, sku: { type: string }, salesCount: { type: integer }, units: { type: integer }, total: { type: number }, sourceIds: { type: array, items: { type: integer } }, sourceCount: { type: integer } } }
   /reports/inventory:
     get:
       tags: [Reportes]
@@ -611,7 +740,7 @@ paths:
                   expired: { $ref: "#/components/schemas/BatchAggregate" }
                   byCategory:
                     type: array
-                    items: { type: object, properties: { categoryId: { type: integer }, categoryName: { type: string }, products: { type: integer }, units: { type: integer }, costValue: { type: number }, saleValue: { type: number } } }
+                    items: { type: object, properties: { categoryId: { type: integer }, categoryName: { type: string }, products: { type: integer }, units: { type: integer }, costValue: { type: number }, saleValue: { type: number }, productIds: { type: array, items: { type: integer }, description: "Hasta 20 ids de productos de la categoría (trazabilidad)" } } }
   /reports/receivables:
     get:
       tags: [Reportes]
@@ -643,7 +772,11 @@ paths:
         "200": { description: Más recientes primero, content: { application/json: { schema: { allOf: [{ $ref: "#/components/schemas/Page" }, { type: object, properties: { items: { type: array, items: { $ref: "#/components/schemas/ReportExport" } } } }] } } } }
     post:
       tags: [Reportes]
-      summary: Registrar la descarga de un reporte en PDF o Excel — ADMIN, SALES (SALES solo `sales`)
+      summary: Registrar un reporte generado en PDF o Excel — ADMIN, SALES (SALES solo `sales`)
+      description: >-
+        Asigna el folio `R-AAAA-NNNNNN` (año en hora de Colombia + consecutivo) y el hash sha256 de
+        `report|format|filters|summary|createdAt|userId`. La app registra ANTES de imprimir el PDF para poner el folio y
+        el QR en la portada; `verifyUrl` es la ruta pública de verificación.
       requestBody:
         required: true
         content:
@@ -655,10 +788,40 @@ paths:
                 report: { type: string, enum: [sales, inventory, receivables, scenario] }
                 format: { type: string, enum: [pdf, xlsx] }
                 description: { type: string, maxLength: 200 }
+                filters: { $ref: "#/components/schemas/ExportData", description: "Filtros con los que se generó (from, to, groupBy, days, overdueDays…)" }
+                summary: { $ref: "#/components/schemas/ExportData", description: "Indicadores principales del documento" }
       responses:
         "201": { description: Registrada, content: { application/json: { schema: { $ref: "#/components/schemas/ReportExport" } } } }
         "400": { $ref: "#/components/responses/Validation" }
         "403": { $ref: "#/components/responses/Forbidden" }
+  /reports/verify/{folio}:
+    get:
+      tags: [Reportes]
+      summary: Verificar la autenticidad de un documento por su folio (QR de la portada) — público
+      description: Sin token; 30 consultas por minuto por IP (429 con código 640). Solo devuelve los datos de emisión.
+      security: []
+      parameters:
+        - { name: folio, in: path, required: true, schema: { type: string, pattern: "^R-\\d{4}-\\d{6}$" } }
+      responses:
+        "200":
+          description: Documento auténtico
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  valid: { type: boolean, enum: [true] }
+                  folio: { type: string }
+                  report: { type: string, enum: [sales, inventory, receivables, scenario] }
+                  format: { type: string, enum: [pdf, xlsx] }
+                  description: { type: string }
+                  createdAt: { type: string, format: date-time }
+                  generatedBy: { type: string, description: Usuario que lo generó }
+                  filters: { $ref: "#/components/schemas/ExportData" }
+                  summary: { $ref: "#/components/schemas/ExportData" }
+                  hash: { type: [string, "null"], description: sha256 en hexadecimal; null en registros anteriores a la migración 0010 }
+        "400": { $ref: "#/components/responses/Validation" }
+        "404": { description: "680 el folio no existe", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
 
   # ------------------------------------------------------------ Chat del equipo
   /chat/messages:
@@ -745,6 +908,19 @@ paths:
         "200": { description: Detalle, content: { application/json: { schema: { $ref: "#/components/schemas/ChatReceipts" } } } }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { description: "609", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+  /chat/messages/{id}/played:
+    post:
+      tags: [Chat del equipo]
+      summary: Marcar que quien llama reprodujo la nota de voz del mensaje — cualquier rol; no se audita
+      description: >-
+        Solo en un mensaje ajeno, vigente y con adjunto de audio (400 si no). Deja el acuse propio con `playedAt` (y
+        entregado y leído si aún no lo estaba) y avisa al autor con un evento `update` para que el micrófono de sus
+        chulitos cambie en vivo. Repetirlo no cambia nada.
+      parameters: [{ name: id, in: path, required: true, schema: { type: integer } }]
+      responses:
+        "200": { description: Acuse actualizado (0 si ya estaba), content: { application/json: { schema: { type: object, properties: { updated: { type: integer } } } } } }
+        "400": { $ref: "#/components/responses/Validation" }
+        "404": { description: "609", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
   /chat/messages/{id}/pin:
     put:
       tags: [Chat del equipo]
@@ -770,6 +946,23 @@ paths:
       parameters: [{ name: with, in: query, schema: { type: integer, minimum: 1 } }]
       responses:
         "200": { description: Fijados, el más reciente primero, content: { application/json: { schema: { type: object, properties: { items: { type: array, items: { $ref: "#/components/schemas/ChatMessage" } } } } } } }
+  /chat/media:
+    get:
+      tags: [Chat del equipo]
+      summary: Contenido de una conversación (fotos, archivos, notas de voz o enlaces) — cualquier rol
+      description: >-
+        Lo más reciente primero, con hilos incluidos y sin mensajes eliminados. Sin `with`, el canal general; con
+        `with`, el privado con esa persona (603 si no existe). `link` saca las direcciones http(s) del texto de los
+        mensajes (hasta 20 por mensaje, de los 500 mensajes con enlaces más recientes).
+      parameters:
+        - { name: with, in: query, schema: { type: integer, minimum: 1 } }
+        - { name: kind, in: query, required: true, schema: { type: string, enum: [image, file, audio, link] } }
+        - { $ref: "#/components/parameters/page" }
+        - { $ref: "#/components/parameters/limit" }
+      responses:
+        "200": { description: Página, content: { application/json: { schema: { allOf: [{ $ref: "#/components/schemas/Page" }, { type: object, properties: { items: { type: array, items: { $ref: "#/components/schemas/ChatMediaItem" } } } }] } } } }
+        "400": { $ref: "#/components/responses/Validation" }
+        "404": { description: "603", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
   /chat/read:
     post:
       tags: [Chat del equipo]
@@ -790,9 +983,11 @@ paths:
   /chat/search:
     get:
       tags: [Chat del equipo]
-      summary: Buscar en el chat (texto, autor o nombre de adjunto; sin tildes) — solo lo que la persona puede ver
+      summary: Buscar en el chat (texto, autor o nombre de adjunto, sin tildes; y/o por día) — solo lo que la persona puede ver
+      description: Hace falta `q` (2 caracteres o más) o `day`; con `day` el texto es opcional. El día se cuenta en la hora del negocio (America/Bogota).
       parameters:
-        - { name: q, in: query, required: true, schema: { type: string, minLength: 2, maxLength: 100 } }
+        - { name: q, in: query, schema: { type: string, minLength: 2, maxLength: 100 } }
+        - { name: day, in: query, schema: { type: string, format: date }, description: "Solo mensajes de ese día (YYYY-MM-DD)" }
         - { name: with, in: query, schema: { type: integer, minimum: 1 }, description: Solo ese privado }
         - { name: general, in: query, schema: { type: boolean }, description: "Solo #general" }
         - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 60, default: 30 } }
@@ -804,10 +999,13 @@ paths:
       tags: [Chat del equipo]
       summary: Subir un adjunto para el próximo mensaje — cualquier rol
       description: >-
-        Cuerpo binario de hasta 10 MB; tipo en `Content-Type` (fotos JPEG/PNG/WebP/GIF, PDF, Excel, Word, CSV o texto)
-        y nombre en `X-File-Name` (codificado con encodeURIComponent). Queda a nombre de quien lo sube hasta que lo envíe;
-        si no lo envía en 24 h se borra.
-      parameters: [{ name: X-File-Name, in: header, required: true, schema: { type: string } }]
+        Cuerpo binario de hasta 10 MB; tipo en `Content-Type` (fotos JPEG/PNG/WebP/GIF, notas de voz WebM/Ogg/MP4/MPEG,
+        PDF, Excel, Word, CSV o texto) y nombre en `X-File-Name` (codificado con encodeURIComponent). En notas de voz,
+        `X-Duration-Ms` lleva la duración en milisegundos (opcional; máximo una hora). Queda a nombre de quien lo sube
+        hasta que lo envíe; si no lo envía en 24 h se borra.
+      parameters:
+        - { name: X-File-Name, in: header, required: true, schema: { type: string } }
+        - { name: X-Duration-Ms, in: header, schema: { type: integer, minimum: 1 }, description: Solo en audio }
       requestBody: { required: true, content: { application/octet-stream: { schema: { type: string, format: binary } } } }
       responses:
         "201": { description: Subido, content: { application/json: { schema: { $ref: "#/components/schemas/ChatAttachment" } } } }
@@ -818,7 +1016,7 @@ paths:
       summary: Descargar un adjunto — quien puede ver el mensaje que lo lleva
       parameters: [{ name: id, in: path, required: true, schema: { type: integer } }]
       responses:
-        "200": { description: El archivo (las fotos en línea; el resto como descarga), content: { application/octet-stream: { schema: { type: string, format: binary } } } }
+        "200": { description: El archivo (fotos y notas de voz en línea; el resto como descarga), content: { application/octet-stream: { schema: { type: string, format: binary } } } }
         "404": { description: "609", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
   /chat/stream:
     get:
@@ -827,6 +1025,8 @@ paths:
       description: >-
         `text/event-stream` con eventos `data: <json>`: `ready` al abrir; `message` (id, peerId, threadRootId, autor,
         vista previa, mentionsMe); `update` (ids cuyo estado cambió: acuses, fijado, hilo); `team` (contadores propios);
+        `alarm` (alarma personalizada que acaba de sonar: alarmId, title, description, area, firedAt); `due` (resumen diario
+        de vencimientos del rol: count, summary);
         `bye` cuando la sesión deja de ser válida. Solo llegan los de conversaciones que la persona puede ver. Un
         comentario `: ping` cada 25 s mantiene viva la conexión. Recibir un mensaje por aquí cuenta como entregado.
       responses:
@@ -932,9 +1132,12 @@ paths:
       tags: [Asistente de IA]
       summary: Pregunta al asistente con herramientas del rol — cualquier rol
       description: >-
-        La conversación viaja completa (máx. 20 turnos; el último es de la persona) y no se guarda. Las herramientas de
-        consulta llaman a la misma lógica que los endpoints, con sus roles. `proposals` son tarjetas: `action` (la petición
-        exacta a un endpoint de escritura, que la app ejecuta solo si la persona confirma) o `report` (abre un reporte).
+        La conversación viaja completa (máx. 20 turnos; el último es de la persona); el servidor guarda la última pregunta y
+        la respuesta en la conversación (`conversationId`; sin él crea una nueva). Con `asincrono: true` responde 202
+        `{ tareaId, conversationId, userMessageId }` y la respuesta se recoge en `GET /ai/mensajes/{tareaId}`. `screen` es la
+        pantalla desde la que se pregunta (contexto del prompt). Las herramientas de consulta llaman a la misma lógica que
+        los endpoints, con sus roles. `proposals` son tarjetas: `action` (la petición exacta a un endpoint de escritura, que
+        la app ejecuta solo si la persona confirma) o `report` (abre un reporte).
       requestBody:
         required: true
         content:
@@ -943,6 +1146,9 @@ paths:
               type: object
               required: [messages]
               properties:
+                asincrono: { type: boolean, default: false, description: Respuesta en dos pasos (202 + consulta de la tarea). }
+                conversationId: { type: integer, description: Conversación guardada a la que pertenece la pregunta. }
+                screen: { type: string, enum: [inicio, inventario, lotes, ventas, clientes, proveedores, finanzas, reportes, tita, chat, contactos, usuarios, auditoria, alarmas, perfil] }
                 messages:
                   type: array
                   maxItems: 20
@@ -966,8 +1172,107 @@ paths:
                             data: { type: string }
                             text: { type: string, maxLength: 200000 }
       responses:
-        "200": { description: Respuesta, content: { application/json: { schema: { type: object, properties: { reply: { type: string }, sources: { type: array, items: { type: object } }, proposals: { type: array, items: { type: object } } } } } } }
+        "200": { description: Respuesta, content: { application/json: { schema: { type: object, properties: { reply: { type: string }, sources: { type: array, items: { type: object } }, proposals: { type: array, items: { type: object } }, conversationId: { type: integer }, messageId: { type: integer }, userMessageId: { type: integer } } } } } }
+        "202": { description: Pregunta aceptada (asincrono), content: { application/json: { schema: { type: object, properties: { tareaId: { type: string }, conversationId: { type: integer }, userMessageId: { type: integer } } } } } }
         "429": { description: Tope de consultas (640) }
+  /chat/messages/{id}/tita-actions:
+    patch:
+      tags: [Asistente de IA]
+      summary: Cómo quedó una tarjeta de Tita en un mensaje del chat (@Tita) — solo quien la invocó
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [index, status], properties: { index: { type: integer }, status: { type: string, enum: [done, failed, dismissed] }, note: { type: string, maxLength: 300 } } } } } }
+      responses:
+        "204": { description: Guardado }
+        "403": { description: No es quien invocó a Tita (613) }
+        "404": { description: El mensaje no existe o no es de Tita (609) }
+  /comments/{id}/tita-actions:
+    patch:
+      tags: [Asistente de IA]
+      summary: Cómo quedó una tarjeta de Tita en un comentario (@Tita) — solo quien la invocó
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [index, status], properties: { index: { type: integer }, status: { type: string, enum: [done, failed, dismissed] }, note: { type: string, maxLength: 300 } } } } } }
+      responses:
+        "204": { description: Guardado }
+        "403": { description: No es quien invocó a Tita (613) }
+        "404": { description: El comentario no existe o no es de Tita (685) }
+  /ai/complete:
+    post:
+      tags: [Asistente de IA]
+      summary: Autocompletado de la pregunta que se está escribiendo (modelo rápido) — cualquier rol
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [text]
+              properties:
+                text: { type: string, maxLength: 600 }
+                screen: { type: string }
+      responses:
+        "200": { description: "{ completion } (cadena vacía si no hay sugerencia)" }
+        "429": { description: Tope de consultas (640) }
+  /ai/mensajes/{tareaId}:
+    get:
+      tags: [Asistente de IA]
+      summary: Segundo paso de la respuesta en dos pasos — cualquier rol (solo la propia)
+      parameters:
+        - { name: tareaId, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Respuesta lista (misma forma que el 200 de /ai/chat) }
+        "202": { description: Tita sigue trabajando, content: { application/json: { schema: { type: object, properties: { tareaId: { type: string }, status: { type: string, enum: [pending] } } } } } }
+        "404": { description: La tarea no existe, venció o es de otra persona (662) }
+        "502": { description: El proveedor de IA falló (661) }
+  /ai/conversations:
+    get:
+      tags: [Asistente de IA]
+      summary: Historial de conversaciones propias con Tita — cualquier rol
+      parameters:
+        - { name: page, in: query, schema: { type: integer } }
+        - { name: limit, in: query, schema: { type: integer } }
+      responses:
+        "200": { description: "{ count, page, pages, items: [{ id, title, screen, messages, createdAt, updatedAt }] }" }
+  /ai/conversations/{id}:
+    get:
+      tags: [Asistente de IA]
+      summary: Una conversación propia con sus mensajes — cualquier rol
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: "Conversación con `items`: [{ id, role (user|assistant|event), content, attachments (solo nombres), sources, proposals, actions, error, createdAt }]" }
+        "404": { description: No existe o es de otra persona (663) }
+    delete:
+      tags: [Asistente de IA]
+      summary: Borra una conversación propia — cualquier rol
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "204": { description: Borrada }
+        "404": { description: No existe o es de otra persona (663) }
+  /ai/conversations/{id}/events:
+    post:
+      tags: [Asistente de IA]
+      summary: Nota de una tarjeta confirmada o descartada — cualquier rol
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content]
+              properties:
+                content: { type: string, maxLength: 600 }
+                messageId: { type: integer, description: Mensaje de Tita con la tarjeta (va con index). }
+                index: { type: integer, description: Índice de la tarjeta dentro del mensaje. }
+                status: { type: string, enum: [idle, running, done, failed, dismissed] }
+                note: { type: string, maxLength: 300 }
+      responses:
+        "201": { description: "{ id }" }
+        "404": { description: No existe o es de otra persona (663) }
         "503": { description: IA no configurada (660) }
         "502": { description: Falla del proveedor de IA (661) }
   /ai/drafts:
@@ -1009,6 +1314,265 @@ paths:
       responses:
         "200": { description: Lectura con candidatos por línea y advertencias }
 
+  # ------------------------------------------------------------ Alarmas y avisos (brief 2026, puntos 12 a 14)
+  /alarms:
+    get:
+      tags: [Alarmas y avisos]
+      summary: Alarmas propias — cualquier rol
+      description: >-
+        `?status=upcoming` (por defecto) lista las alarmas de quien consulta (activas primero, por próximo disparo);
+        `?status=past` lista los disparos ocurridos (`AlarmFire`). Paginado.
+      parameters:
+        - { name: status, in: query, schema: { type: string, enum: [upcoming, past], default: upcoming } }
+        - { $ref: "#/components/parameters/page" }
+        - { $ref: "#/components/parameters/limit" }
+      responses:
+        "200":
+          description: Listado paginado de alarmas (o de disparos con `past`)
+          content: { application/json: { schema: { type: object, properties: { count: { type: integer }, page: { type: integer }, pages: { type: integer }, items: { type: array, items: { oneOf: [{ $ref: "#/components/schemas/Alarm" }, { $ref: "#/components/schemas/AlarmFire" }] } } } } } }
+    post:
+      tags: [Alarmas y avisos]
+      summary: Crear una alarma propia — cualquier rol
+      description: >-
+        Hora local del negocio (`BUSINESS_TZ`). `repeat`: ONCE (exige `date`), DAILY, WEEKDAYS (lunes a viernes) o
+        WEEKLY (exige `weekdays`, 0 = domingo … 6 = sábado). El servidor calcula `nextFireAt`; una ONCE ya pasada
+        responde 671. Tope de 50 alarmas por persona (672).
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/AlarmInput" } } }
+      responses:
+        "201": { description: Alarma creada, content: { application/json: { schema: { $ref: "#/components/schemas/Alarm" } } } }
+        "400": { $ref: "#/components/responses/Validation" }
+        "422": { description: "671 sin disparo futuro", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+  /alarms/ics:
+    get:
+      tags: [Alarmas y avisos]
+      summary: Todas las alarmas activas en un archivo .ics — cualquier rol
+      description: "`text/calendar` (RFC 5545): un VEVENT por alarma con RRULE según su repetición, `TZID` America/Bogota y un VALARM a la hora exacta. Archivo `alarmas-mi-tierrita.ics`."
+      responses:
+        "200": { description: Calendario, content: { text/calendar: { schema: { type: string } } } }
+  /alarms/{id}:
+    parameters: [{ $ref: "#/components/parameters/id" }]
+    get:
+      tags: [Alarmas y avisos]
+      summary: Una alarma propia — cualquier rol
+      responses:
+        "200": { description: Alarma, content: { application/json: { schema: { $ref: "#/components/schemas/Alarm" } } } }
+        "404": { description: "670 no existe o es de otra persona", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+    put:
+      tags: [Alarmas y avisos]
+      summary: Reemplazar la programación de una alarma — cualquier rol
+      description: Recibe el formulario completo (`AlarmInput`), recalcula el próximo disparo y la deja activa.
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/AlarmInput" } } }
+      responses:
+        "200": { description: Alarma actualizada, content: { application/json: { schema: { $ref: "#/components/schemas/Alarm" } } } }
+        "400": { $ref: "#/components/responses/Validation" }
+        "404": { description: "670", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+    delete:
+      tags: [Alarmas y avisos]
+      summary: Eliminar una alarma propia (y sus disparos) — cualquier rol
+      responses:
+        "204": { description: Eliminada }
+        "404": { description: "670", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+  /alarms/{id}/active:
+    parameters: [{ $ref: "#/components/parameters/id" }]
+    patch:
+      tags: [Alarmas y avisos]
+      summary: Encender o apagar una alarma — cualquier rol
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [active], properties: { active: { type: boolean } } } } }
+      responses:
+        "200": { description: Alarma con `active` y `nextFireAt` al día, content: { application/json: { schema: { $ref: "#/components/schemas/Alarm" } } } }
+        "422": { description: "671 no se puede encender: ya no tiene disparo futuro", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+  /alarms/{id}/ics:
+    parameters: [{ $ref: "#/components/parameters/id" }]
+    get:
+      tags: [Alarmas y avisos]
+      summary: Archivo .ics de una alarma — cualquier rol
+      description: "`text/calendar`, archivo `alarma-<id>.ics`, para agregarla al calendario del teléfono."
+      responses:
+        "200": { description: Calendario, content: { text/calendar: { schema: { type: string } } } }
+        "404": { description: "670", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+  /calendar:
+    get:
+      tags: [Calendario]
+      summary: Calendario reutilizable por rol — cualquier rol
+      description: >-
+        Brief 2.5, punto 31. Ítems con fecha dentro del rango (por defecto el mes en curso; como mucho 62 días, si no
+        400): lotes con existencias que vencen en el rango (ADMIN y WAREHOUSE; alta si vencen en 7 días o ya
+        vencieron), cobros de cartera (ADMIN y SALES; fecha en que la última venta a crédito cumple el plazo del
+        reporte), alarmas propias (próximos disparos y los ya ocurridos) y cierres de mes. «Pedidos», «nómina» y
+        «conteos de inventario» no existen en el sistema.
+      parameters:
+        - { $ref: "#/components/parameters/from" }
+        - { $ref: "#/components/parameters/to" }
+      responses:
+        "200":
+          description: Ítems del rango y resumen
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  from: { type: string, format: date }
+                  to: { type: string, format: date }
+                  items: { type: array, items: { $ref: "#/components/schemas/CalendarItem" } }
+                  summary:
+                    type: object
+                    properties:
+                      pending: { type: integer }
+                      overdue: { type: integer }
+                      done: { type: integer }
+        "400": { $ref: "#/components/responses/Validation" }
+
+  /notifications/due:
+    get:
+      tags: [Alarmas y avisos]
+      summary: Avisos de vencimiento según el rol — cualquier rol
+      description: >-
+        Calculados en el servidor: ADMIN y WAREHOUSE reciben lotes vencidos y por vencer (7 días); ADMIN y SALES,
+        cartera vencida (misma regla del reporte: última venta a crédito con más de 30 días) y cobros a 5 días de
+        vencer. El planificador publica el mismo resumen a las 07:00 (evento `due` del stream y Web Push) una vez al
+        día. «Pedidos por vencer» no existe: no hay tabla de pedidos.
+      responses:
+        "200":
+          description: Avisos del rol
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count: { type: integer }
+                  summary: { type: string }
+                  items: { type: array, items: { $ref: "#/components/schemas/DueItem" } }
+
+  # ------------------------------------------------------------ Web Push
+  /push/public-key:
+    get:
+      tags: [Web Push]
+      summary: Clave pública VAPID — cualquier rol
+      responses:
+        "200": { description: "`enabled` false si el servidor no tiene par VAPID", content: { application/json: { schema: { type: object, properties: { enabled: { type: boolean }, publicKey: { type: [string, "null"] } } } } } }
+  /push/subscriptions:
+    post:
+      tags: [Web Push]
+      summary: Registrar este dispositivo — cualquier rol
+      description: Guarda lo que devuelve `PushManager.subscribe`; si el endpoint ya existía, lo reemplaza (también si era de otra cuenta en el mismo navegador).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [endpoint, keys]
+              properties:
+                endpoint: { type: string, format: uri }
+                keys: { type: object, required: [p256dh, auth], properties: { p256dh: { type: string }, auth: { type: string } } }
+                userAgent: { type: string, maxLength: 200 }
+      responses:
+        "201": { description: Suscripción guardada }
+        "400": { $ref: "#/components/responses/Validation" }
+        "503": { description: "673 push no configurado", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+    delete:
+      tags: [Web Push]
+      summary: Dar de baja este dispositivo — cualquier rol
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [endpoint], properties: { endpoint: { type: string } } } } }
+      responses:
+        "204": { description: Baja hecha }
+        "404": { description: "674 no existe o es de otra persona", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+
+  # ------------------------------------------------------------ Biblioteca
+  /library:
+    get:
+      tags: [Biblioteca]
+      summary: Documentos y enlaces del equipo — cualquier rol
+      description: Solo los ítems cuyo `roles` esté vacío o incluya el rol de quien consulta. Lo más reciente primero.
+      parameters:
+        - { name: kind, in: query, schema: { type: string, enum: [document, link] } }
+        - { name: q, in: query, schema: { type: string, maxLength: 100 }, description: "Busca en título, descripción y nombre del archivo (sin tildes ni mayúsculas)" }
+        - { $ref: "#/components/parameters/page" }
+        - { $ref: "#/components/parameters/limit" }
+      responses:
+        "200": { description: Página, content: { application/json: { schema: { allOf: [{ $ref: "#/components/schemas/Page" }, { type: object, properties: { items: { type: array, items: { $ref: "#/components/schemas/LibraryItem" } } } }] } } } }
+  /library/links:
+    post:
+      tags: [Biblioteca]
+      summary: Agregar un enlace — ADMIN
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title, url]
+              properties:
+                title: { type: string, maxLength: 140 }
+                description: { type: string, maxLength: 400 }
+                url: { type: string, maxLength: 2000, description: "Solo http:// o https://" }
+                roles: { type: array, items: { $ref: "#/components/schemas/Role" }, description: "Quién lo ve; vacío o los tres = todos" }
+      responses:
+        "201": { description: Creado, content: { application/json: { schema: { $ref: "#/components/schemas/LibraryItem" } } } }
+        "400": { $ref: "#/components/responses/Validation" }
+  /library/documents:
+    post:
+      tags: [Biblioteca]
+      summary: Subir un documento — ADMIN
+      description: >-
+        Cuerpo binario de hasta 10 MB; tipo en `Content-Type` (los mismos tipos que los adjuntos del chat, salvo audio:
+        fotos JPEG/PNG/WebP/GIF, PDF, Excel, Word, CSV o texto). Cabeceras codificadas con encodeURIComponent:
+        `X-File-Name` (obligatoria), `X-Title` (obligatoria), `X-Description` y `X-Roles` (roles separados por coma;
+        vacío = todos).
+      parameters:
+        - { name: X-File-Name, in: header, required: true, schema: { type: string } }
+        - { name: X-Title, in: header, required: true, schema: { type: string } }
+        - { name: X-Description, in: header, schema: { type: string } }
+        - { name: X-Roles, in: header, schema: { type: string }, description: "Ej. ADMIN,SALES" }
+      requestBody: { required: true, content: { application/octet-stream: { schema: { type: string, format: binary } } } }
+      responses:
+        "201": { description: Creado, content: { application/json: { schema: { $ref: "#/components/schemas/LibraryItem" } } } }
+        "400": { $ref: "#/components/responses/Validation" }
+  /library/{id}:
+    put:
+      tags: [Biblioteca]
+      summary: Editar título, descripción, roles o dirección — ADMIN
+      description: El archivo de un documento no se reemplaza (se sube otro ítem); enviar `url` a un documento responde 400.
+      parameters: [{ name: id, in: path, required: true, schema: { type: integer } }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title: { type: string, maxLength: 140 }
+                description: { type: string, maxLength: 400 }
+                url: { type: string, maxLength: 2000 }
+                roles: { type: array, items: { $ref: "#/components/schemas/Role" } }
+      responses:
+        "200": { description: Actualizado, content: { application/json: { schema: { $ref: "#/components/schemas/LibraryItem" } } } }
+        "400": { $ref: "#/components/responses/Validation" }
+        "404": { description: "690", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+    delete:
+      tags: [Biblioteca]
+      summary: Eliminar un ítem — ADMIN
+      parameters: [{ name: id, in: path, required: true, schema: { type: integer } }]
+      responses:
+        "204": { description: Eliminado }
+        "404": { description: "690", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+  /library/{id}/file:
+    get:
+      tags: [Biblioteca]
+      summary: Descargar el archivo de un documento — quien pueda verlo
+      parameters: [{ name: id, in: path, required: true, schema: { type: integer } }]
+      responses:
+        "200": { description: El archivo (imágenes, PDF y texto en línea; el resto como descarga), content: { application/octet-stream: { schema: { type: string, format: binary } } } }
+        "404": { description: "690 (tampoco si el rol no puede verlo)", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+
 components:
   securitySchemes:
     bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }
@@ -1036,6 +1600,74 @@ components:
       description: "613 rol insuficiente (details.requiredRoles)"
       content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } }
   schemas:
+    AlarmInput:
+      type: object
+      required: [title, timeOfDay, repeat]
+      properties:
+        title: { type: string, maxLength: 120 }
+        description: { type: string, maxLength: 400 }
+        timeOfDay: { type: string, pattern: "^([01]\\d|2[0-3]):[0-5]\\d$", description: HH:MM, hora local del negocio }
+        repeat: { type: string, enum: [ONCE, DAILY, WEEKDAYS, WEEKLY] }
+        weekdays: { type: array, items: { type: integer, minimum: 0, maximum: 6 }, description: Solo WEEKLY (0 = domingo) }
+        date: { type: string, format: date, description: Solo ONCE }
+        area: { type: string, enum: [inicio, inventario, lotes, ventas, clientes, proveedores, finanzas, reportes, chat, alarmas] }
+    Alarm:
+      allOf:
+        - { $ref: "#/components/schemas/AlarmInput" }
+        - type: object
+          properties:
+            id: { type: integer }
+            active: { type: boolean }
+            nextFireAt: { type: [string, "null"], format: date-time }
+            lastFiredAt: { type: [string, "null"], format: date-time }
+            createdAt: { type: string, format: date-time }
+            updatedAt: { type: string, format: date-time }
+    AlarmFire:
+      type: object
+      properties:
+        id: { type: integer }
+        alarmId: { type: integer }
+        title: { type: string }
+        description: { type: [string, "null"] }
+        area: { type: [string, "null"] }
+        firedAt: { type: string, format: date-time }
+        seenAt: { type: [string, "null"], format: date-time }
+    DueItem:
+      type: object
+      properties:
+        kind: { type: string, enum: [batch_expiring, batch_expired, receivable_overdue, receivable_due_soon] }
+        id: { type: integer, description: Id del lote o del cliente }
+        title: { type: string }
+        detail: { type: string }
+        dueOn: { type: string, format: date }
+        href: { type: string, description: Pantalla de la app }
+    DirectoryEntry:
+      type: object
+      properties:
+        id: { type: integer }
+        firstName: { type: string }
+        lastName: { type: string }
+        username: { type: string }
+        role: { type: string, enum: [ADMIN, SALES, WAREHOUSE] }
+        email: { type: string, nullable: true }
+        phone: { type: string, nullable: true }
+        hasAvatar: { type: boolean }
+        avatarUpdatedAt: { type: string, format: date-time, nullable: true }
+        online: { type: boolean }
+        lastSeenAt: { type: string, format: date-time, nullable: true }
+        active: { type: boolean, description: Solo ADMIN recibe cuentas inactivas }
+    CalendarItem:
+      type: object
+      properties:
+        id: { type: string, description: "Único en la respuesta: <kind>-<id>[-<fecha>]" }
+        kind: { type: string, enum: [batch, receivable, alarm, closing] }
+        title: { type: string }
+        detail: { type: string }
+        date: { type: string, format: date }
+        priority: { type: string, enum: [alta, media, baja] }
+        area: { type: string, description: Lotes, Cartera, Alarmas o Cierres }
+        status: { type: string, enum: [pending, overdue, done] }
+        href: { type: string, description: Pantalla de la app }
     ErrorBody:
       type: object
       required: [message]
@@ -1063,6 +1695,27 @@ components:
         email: { type: [string, "null"] }
         phone: { type: [string, "null"] }
         createdAt: { type: string, format: date-time }
+        hasAvatar: { type: boolean, description: "Tiene foto (GET /users/{id}/avatar)" }
+        avatarUpdatedAt: { type: [string, "null"], format: date-time, description: "Clave de caché de la foto" }
+    LibraryItem:
+      type: object
+      properties:
+        id: { type: integer }
+        kind: { type: string, enum: [document, link] }
+        title: { type: string }
+        description: { type: string }
+        url: { type: [string, "null"], description: "Solo en enlaces" }
+        name: { type: [string, "null"], description: "Nombre del archivo (documentos)" }
+        mime: { type: [string, "null"] }
+        size: { type: [integer, "null"] }
+        roles: { type: array, items: { $ref: "#/components/schemas/Role" }, description: "Vacío = todos" }
+        createdBy: { type: object, properties: { id: { type: integer }, name: { type: string } } }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    ExportData:
+      type: object
+      description: Objeto plano de escalares (texto hasta 200 caracteres, número, booleano o null); hasta 24 campos.
+      additionalProperties: { type: [string, number, boolean, "null"] }
     ReportExport:
       type: object
       properties:
@@ -1072,13 +1725,28 @@ components:
         report: { type: string, enum: [sales, inventory, receivables, scenario] }
         format: { type: string, enum: [pdf, xlsx] }
         description: { type: string }
+        folio: { type: string, example: R-2026-000012 }
+        hash: { type: [string, "null"], description: sha256 hexadecimal de report|format|filters|summary|createdAt|userId }
+        filters: { $ref: "#/components/schemas/ExportData" }
+        summary: { $ref: "#/components/schemas/ExportData" }
         createdAt: { type: string, format: date-time }
+        verifyUrl: { type: string, description: Ruta pública de verificación relativa a la API }
     ChatPerson:
       type: object
       properties: { id: { type: integer }, firstName: { type: string }, lastName: { type: string } }
     ChatAttachment:
       type: object
-      properties: { id: { type: integer }, name: { type: string }, mime: { type: string }, size: { type: integer } }
+      properties: { id: { type: integer }, name: { type: string }, mime: { type: string }, size: { type: integer }, durationMs: { type: [integer, "null"], description: Solo en notas de voz } }
+    ChatMediaItem:
+      type: object
+      description: Un adjunto (`attachment`) o un enlace del texto (`url`), según `kind`
+      properties:
+        kind: { type: string, enum: [image, file, audio, link] }
+        messageId: { type: integer }
+        createdAt: { type: string, format: date-time }
+        author: { $ref: "#/components/schemas/ChatPerson" }
+        attachment: { $ref: "#/components/schemas/ChatAttachment" }
+        url: { type: string }
     ChatMessage:
       type: object
       properties:
@@ -1120,10 +1788,11 @@ components:
           type: [object, "null"]
           description: Solo en los mensajes propios (las cuentas desactivadas no cuentan)
           properties:
-            status: { type: string, enum: [sent, delivered, read] }
+            status: { type: string, enum: [sent, delivered, read, played], description: "`played` solo en mensajes con nota de voz, cuando todos la reprodujeron" }
             total: { type: integer }
             delivered: { type: integer }
             read: { type: integer }
+            played: { type: integer }
         unread: { type: boolean, description: "Mensaje ajeno que quien consulta no ha visto" }
         mentionsMe: { type: boolean }
     ChatPage:
@@ -1139,14 +1808,18 @@ components:
         user: { allOf: [{ $ref: "#/components/schemas/ChatPerson" }, { type: object, properties: { role: { $ref: "#/components/schemas/Role" }, active: { type: boolean } } }] }
         deliveredAt: { type: [string, "null"], format: date-time }
         readAt: { type: [string, "null"], format: date-time }
+        playedAt: { type: [string, "null"], format: date-time, description: Solo en mensajes con nota de voz }
     ChatReceipts:
       type: object
+      description: "`read`, `delivered` y `pending` se excluyen entre sí; `played` es un subconjunto de `read` (solo con `audio`)"
       properties:
         messageId: { type: integer }
-        status: { type: string, enum: [sent, delivered, read] }
+        status: { type: string, enum: [sent, delivered, read, played] }
+        audio: { type: boolean, description: El mensaje lleva una nota de voz }
         read: { type: array, items: { $ref: "#/components/schemas/ChatReceiptEntry" } }
         delivered: { type: array, items: { $ref: "#/components/schemas/ChatReceiptEntry" } }
         pending: { type: array, items: { $ref: "#/components/schemas/ChatReceiptEntry" } }
+        played: { type: array, items: { $ref: "#/components/schemas/ChatReceiptEntry" } }
     ChatPreview:
       type: [object, "null"]
       properties:
@@ -1362,8 +2035,38 @@ components:
         username: { type: string }
         method: { type: string }
         resource: { type: string }
+        aiSuggested: { type: boolean, description: Confirmado desde un borrador de Tita }
+        entity: { type: [string, "null"], description: Recurso raíz de la ruta (products, customers, sales…) }
+        entityId: { type: [integer, "null"], description: Registro tocado (id de la ruta o, en una creación, el de la respuesta) }
+        changes: { type: [object, "null"], description: "{ request, response }: cuerpo de la petición sin campos sensibles y resumen escalar de la respuesta", properties: { request: { type: object }, response: { type: object } } }
         createdAt: { type: string, format: date-time }
     AuditPage: { allOf: [{ $ref: "#/components/schemas/Page" }, { type: object, properties: { items: { type: array, items: { $ref: "#/components/schemas/Audit" } } } }] }
+    CommentEntity: { type: string, enum: [products, customers, sales, suppliers, batches] }
+    CommentAuthor:
+      type: object
+      properties:
+        id: { type: integer }
+        firstName: { type: string }
+        lastName: { type: string }
+        username: { type: string }
+        role: { type: string }
+    Comment:
+      type: object
+      properties:
+        id: { type: integer }
+        entity: { $ref: "#/components/schemas/CommentEntity" }
+        entityId: { type: integer }
+        body: { type: string }
+        author: { $ref: "#/components/schemas/CommentAuthor" }
+        replyTo:
+          type: [object, "null"]
+          description: Comentario al que responde; `excerpt` vacío y `deleted` true si ese comentario se eliminó
+          properties:
+            id: { type: integer }
+            author: { $ref: "#/components/schemas/CommentAuthor" }
+            excerpt: { type: string }
+            deleted: { type: boolean }
+        createdAt: { type: string, format: date-time }
     SensitivityVariable: { type: string, enum: [salesIncrease, inventoryTurnover, tmar] }
     Range:
       type: object

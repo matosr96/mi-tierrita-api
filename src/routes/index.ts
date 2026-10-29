@@ -9,11 +9,18 @@ import { suppliersRouter } from "./suppliers";
 import { customersRouter } from "./customers";
 import { salesRouter } from "./sales";
 import { auditsRouter } from "./audits";
-import { reportsRouter } from "./reports";
+import { searchRouter } from "./search";
+import { commentsRouter } from "./comments";
+import { reportsPublicRouter, reportsRouter } from "./reports";
 import { financialRouter } from "./financial";
 import { chatRouter } from "./chat";
 import { contactMessagesRouter, contactPublicRouter } from "./contact";
 import { aiRouter } from "./ai";
+import { alarmsRouter } from "./alarms";
+import { notificationsRouter } from "./notifications";
+import { pushRouter } from "./push";
+import { libraryRouter } from "./library";
+import { calendarRouter } from "./calendar";
 
 export { healthRouter } from "./health";
 export { docsRouter } from "./docs";
@@ -29,6 +36,7 @@ export const apiRouter = Router();
 // --- públicas ---
 apiRouter.use("/auth", authPublicRouter);
 apiRouter.use("/contact", contactPublicRouter);
+apiRouter.use("/reports", reportsPublicRouter);
 
 // --- a partir de aquí, autenticación obligatoria ---
 apiRouter.use(authenticate);
@@ -42,8 +50,15 @@ apiRouter.use("/suppliers", suppliersRouter);
 apiRouter.use("/customers", customersRouter);
 apiRouter.use("/sales", salesRouter);
 apiRouter.use("/audits", auditsRouter);
+apiRouter.use("/search", searchRouter);
+apiRouter.use("/comments", commentsRouter);
 apiRouter.use("/reports", reportsRouter);
 apiRouter.use("/financial", financialRouter);
 apiRouter.use("/chat", chatRouter);
 apiRouter.use("/contact-messages", contactMessagesRouter);
 apiRouter.use("/ai", aiRouter);
+apiRouter.use("/alarms", alarmsRouter);
+apiRouter.use("/notifications", notificationsRouter);
+apiRouter.use("/push", pushRouter);
+apiRouter.use("/library", libraryRouter);
+apiRouter.use("/calendar", calendarRouter);

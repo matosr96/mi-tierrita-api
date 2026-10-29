@@ -38,6 +38,24 @@ export const ErrorCodes = {
 
   AI_UNAVAILABLE: "660",
   AI_FAILED: "661",
+  AI_TASK_NOT_FOUND: "662",
+  AI_CONVERSATION_NOT_FOUND: "663",
+
+  ALARM_NOT_FOUND: "670",
+  ALARM_SCHEDULE_INVALID: "671",
+  ALARM_LIMIT_REACHED: "672",
+  PUSH_DISABLED: "673",
+  PUSH_SUBSCRIPTION_NOT_FOUND: "674",
+
+  REPORT_EXPORT_NOT_FOUND: "680",
+
+  COMMENT_NOT_FOUND: "685",
+  COMMENT_REPLY_MISMATCH: "686",
+  COMMENT_NOT_OWNER: "687",
+  RECORD_NOT_FOUND: "688",
+
+  LIBRARY_ITEM_NOT_FOUND: "690",
+  AVATAR_NOT_FOUND: "691",
 } as const;
 
 export type ErrorCode = (typeof ErrorCodes)[keyof typeof ErrorCodes];
@@ -72,6 +90,20 @@ export const httpStatusByCode: Record<ErrorCode, number> = {
   "650": 422,
   "660": 503,
   "661": 502,
+  "662": 404,
+  "663": 404,
+  "670": 404,
+  "671": 422,
+  "672": 409,
+  "673": 503,
+  "674": 404,
+  "680": 404,
+  "685": 404,
+  "686": 409,
+  "687": 403,
+  "688": 404,
+  "690": 404,
+  "691": 404,
 };
 
 /**

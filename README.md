@@ -30,6 +30,7 @@ cp .env.example .env            # ajusta si hace falta
 docker compose up -d db         # PostgreSQL 16 en localhost:5433
 pnpm db:migrate                 # aplica migrations/*.sql
 pnpm create-admin admin 'una-clave-segura'
+pnpm db:seed                    # opcional: datos de ejemplo (ver «Datos de ejemplo»)
 pnpm dev                        # http://localhost:4300/api/v1 · docs en /docs
 ```
 
@@ -43,6 +44,7 @@ Comandos:
 | `pnpm test` | Pruebas unitarias (no necesitan base de datos ni clave de IA) |
 | `pnpm db:migrate` / `pnpm db:status` | Aplica o lista migraciones |
 | `pnpm create-admin <usuario> <clave>` | Crea el primer ADMIN (no hay registro público) |
+| `pnpm db:seed` / `pnpm db:seed:prod` | Datos de ejemplo idempotentes (desde `src/` o desde `build/`) |
 | `docker compose up --build` | API + base de datos en contenedores |
 
 ## Variables de entorno
@@ -61,6 +63,37 @@ Ningún valor sensible va en el código ni en la imagen. Ver [.env.example](.env
 | `AI_MODEL` / `AI_FAST_MODEL` | Modelo del asistente y de los textos cortos (`claude-sonnet-5-5` / `claude-haiku-5-5`) |
 | `BUSINESS_TZ` | Zona horaria del negocio para "hoy", cortes de reportes y vencimientos (`America/Bogota`) |
 | `CORS_ORIGINS` | Dominios del frontend permitidos, separados por coma |
+| `SEED_ON_START` | Con `true`, la API ejecuta el seed de datos de ejemplo al arrancar (apagado por defecto) |
+| `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` | Par Web Push (`pnpm vapid` lo genera) y contacto `mailto:`. Opcionales: sin el par, el push queda apagado (`/push/subscriptions` responde 673) y las alarmas llegan solo por el stream |
+
+## Datos de ejemplo
+
+`pnpm db:seed` (brief de octubre de 2026, punto 39) llena la base con una agropecuaria de Sahagún (Córdoba) usando la
+lógica de negocio real (FEFO, stock, cartera, acuses del chat). Es **idempotente**: cada registro se busca por su clave
+natural (usuario, SKU, NIT, documento, nombre del escenario, `clientId` del mensaje, instante de la venta) y si ya
+existe se deja igual; correrlo dos veces no duplica nada ni toca los datos que no son demo. Tarda unos segundos, no
+necesita red ni `ANTHROPIC_API_KEY`, y al final imprime cuántos registros creó u omitió. Con `SEED_ON_START=true` el
+servidor lo ejecuta al arrancar, después de `db.ping()`.
+
+Qué crea y cómo se reconoce (sin columnas nuevas):
+
+| Datos | Cantidad | Marca |
+|---|---|---|
+| Usuarios `demo.admin` (ADMIN), `demo.caja` (SALES), `demo.bodega` (WAREHOUSE) | 3 | usuario `demo.*`; clave de los tres: `Demo-2026` |
+| Categorías (alimentos balanceados, medicina veterinaria, semillas y fertilizantes, aves de corral, agroquímicos, ferretería agrícola) | 6 | por nombre |
+| Productos con precios de compra y venta | 56 | SKU `DEMO-XXX-NNN` |
+| Proveedores | 5 | NIT `DEMO-…` |
+| Lotes: lejanos (cubren las ventas), por vencer en 3, 10 y 25 días y ya vencidos | ~78 | producto `DEMO-…` |
+| Clientes con cupo: al día, con cartera vencida, con cupo agotado y solo de contado | 28 | documento `DEMO-…` |
+| Ventas de contado y a crédito de los últimos 120 días, con anulaciones y abonos | ~180 ventas, ~6 anuladas, ~50 abonos | registradas por `demo.*` |
+| Escenarios financieros | 3 | nombre `[Demo] …` |
+| Chat del equipo: canal general con hilo, cita y fijado; privados; adjuntos reales (PNG, PDF y CSV generados por el script y guardados en `chat_attachments`) | 34 mensajes, 3 adjuntos | autor `demo.*` |
+| Mensajes de contacto del sitio | 3 | correo `@ejemplo.demo` |
+| Exportaciones de reportes (historial con folio) | 5 | generadas por `demo.*` |
+
+Las fechas históricas se ajustan con `UPDATE` después de registrar (la lógica fecha con `now()`); el ancla es el día
+en que se creó `demo.admin`, así que al volver a correrlo otro día no aparecen ventas nuevas. Las listas viven en
+`src/scripts/seed-data.ts` (funciones puras, probadas en `tests/seed.test.ts`) y la ejecución en `src/scripts/seed.ts`.
 
 ## Arquitectura
 
@@ -147,6 +180,20 @@ documentar en `docs/openapi.yaml` → migración si cambia el esquema.
 | 650 | Escenario financiero inválido | 422 |
 | 660 | IA no configurada (falta `ANTHROPIC_API_KEY`) | 503 |
 | 661 | El proveedor de IA falló o no respondió | 502 |
+| 662 | La tarea de Tita no existe, venció (10 min) o es de otra persona | 404 |
+| 663 | La conversación de Tita no existe o es de otra persona | 404 |
+| 670 | La alarma no existe o es de otra persona | 404 |
+| 671 | Programación de alarma sin disparo futuro (una sola vez con fecha y hora ya pasadas) | 422 |
+| 672 | Tope de 50 alarmas por persona alcanzado | 409 |
+| 673 | Web Push no configurado (falta el par VAPID) | 503 |
+| 674 | La suscripción push no existe o es de otra persona | 404 |
+| 680 | El documento (folio del QR) no existe | 404 |
+| 685 | El comentario no existe (o ya se eliminó) | 404 |
+| 686 | El comentario al que se responde es de otro registro o se eliminó | 409 |
+| 687 | Solo el autor o la administración puede eliminar el comentario | 403 |
+| 688 | El registro que se quiere comentar no existe | 404 |
+| 690 | El ítem de la biblioteca no existe o el rol no puede verlo | 404 |
+| 691 | La persona no tiene foto de perfil | 404 |
 
 ## Estado de la API
 
@@ -154,24 +201,31 @@ Los 44 endpoints del documento 06 están implementados y documentados en `/docs`
 `0002_figma_v4` y `0003_chat_privado_presencia` agregan 9 más que pide el prototipo de escritorio v4.2 (Mi perfil,
 historial de reportes, chat del equipo con privados y presencia, y contactos del sitio), `0004_auditoria_sugerido_ia`
 acompaña las 5 rutas de Tita (`/ai`) `0005_chat_acuses_hilos_adjuntos` amplía el chat con 11 rutas más (acuses,
-hilos, fijados, búsqueda, adjuntos y avisos en vivo) y `0006_chat_editar_eliminar` agrega 2 (editar y eliminar). Ninguno estaba en el documento 06; quedan registrados aquí.
+hilos, fijados, búsqueda, adjuntos y avisos en vivo), `0006_chat_editar_eliminar` agrega 2 (editar y eliminar) y `0007_tita_conversaciones`
+agrega 5 (respuesta en dos pasos e historial de Tita) y `0008_alarmas_avisos_push` agrega 12 (alarmas, avisos de vencimiento y Web Push). Ninguno estaba en el documento 06; quedan registrados aquí.
 
 | Módulo | Endpoints | Casos de uso |
 |---|---|---|
 | Salud y documentación | `GET /health`, `GET /docs`, `GET /docs/openapi.json` | — |
 | Autenticación | `POST /auth/signin`, `POST /auth/signout`, `GET /auth/me` | CU-01, CU-02 |
-| Usuarios | `POST/GET /users`, `GET /users/:id`, `PUT /users/me/password`, `PUT /users/me` (perfil propio) | CU-03, CU-04, prototipo 15 |
+| Usuarios | `POST/GET /users`, `GET /users/:id`, `PUT /users/me/password`, `PUT /users/me` (perfil propio), `PUT /users/me/avatar` (foto propia: binario JPEG/PNG/WebP ≤ 1 MB, la app la reduce a 256×256), `DELETE /users/me/avatar`, `GET /users/:id/avatar` (cualquier rol; 691 si no tiene; `Cache-Control: private, max-age=300` y `ETag` por `avatarUpdatedAt`). `GET /users/directory` (cualquier rol; brief 2.5, punto 30): directorio de personas con `id`, nombre, `username`, `role`, `email`, `phone`, `hasAvatar`, `avatarUpdatedAt`, `online` y `lastSeenAt` (misma regla de presencia del chat: petición en los últimos 90 s sin cierre de sesión posterior) y `active`; las cuentas inactivas solo las ve ADMIN, marcadas. Toda respuesta de usuario (incluido `GET /auth/me`) trae `hasAvatar` y `avatarUpdatedAt` | CU-03, CU-04, prototipo 15, brief 2.5 (34) |
 | Categorías | `POST/GET /categories`, `PUT/DELETE /categories/:id` | — |
 | Productos e inventario | `POST/GET /products`, `GET/PUT/DELETE /products/:id`, `POST/GET /products/:id/batches`, `GET /batches/expiring` | CU-05, CU-06, CU-07 |
 | Ventas | `POST/GET /sales`, `GET /sales/:id`, `POST /sales/:id/void` | CU-08 (FEFO), CU-09, CU-10, CU-11, RF-03.4 |
 | Clientes y cartera | `POST/GET /customers`, `GET/PUT /customers/:id`, `GET /customers/:id/balance`, `POST /customers/:id/payments` | CU-12 |
 | Proveedores | `POST/GET /suppliers`, `PUT /suppliers/:id`, `POST /suppliers/:id/purchases` | CU-13 |
 | Finanzas | `POST/GET /financial/scenarios`, `GET .../compare`, `GET .../:id`, `.../amortization`, `.../sensitivity`, `.../sensitivity/bivariate`, `.../tornado` | CU-14 a CU-17 |
-| Auditoría | `GET /audits` | CU-18 |
-| Reportes | `GET /reports/sales` (incluye `averageTicket`), `GET /reports/inventory`, `GET /reports/receivables`, `GET/POST /reports/exports` (historial de descargas) | CU-19, CU-20, prototipo 09 |
-| Chat del equipo | `GET/POST /chat/messages` (canal general o privado con `?with=` / `recipientId`; hilo con `?thread=` / `threadRootId`; cita con `replyToId`; `?after=`, `?before=` y `?around=` para lo nuevo, el historial o saltar a un mensaje; `clientId` evita duplicados), `PATCH /chat/messages/:id` (editar, solo el autor), `DELETE /chat/messages/:id` (eliminar: el autor; en #general también ADMIN), `GET /chat/messages/state?ids=`, `GET /chat/messages/:id/receipts` (solo el autor), `PUT/DELETE /chat/messages/:id/pin`, `GET /chat/pins`, `POST /chat/read`, `GET /chat/search`, `POST /chat/attachments` (binario, 10 MB), `GET /chat/attachments/:id`, `GET /chat/stream` (avisos en vivo, SSE), `GET /chat/team` (en línea, no leídos, menciones) | prototipo 11 + extensión |
-| Tita (asistente de IA) | `GET /ai/status`, `GET /ai/briefing` (recomendaciones del rol + párrafo de IA), `POST /ai/chat` (herramientas de consulta y de acción con los permisos del rol; acepta adjuntos: imagen, PDF o texto; hasta 24 MB), `POST /ai/drafts`, `POST /ai/invoice` (ADMIN, WAREHOUSE). Las herramientas de acción no escriben: validan con el mismo `parseX` del endpoint y devuelven la petición exacta; la app la ejecuta contra el endpoint real solo si la persona confirma, con `X-AI-Suggested: 1` (auditoría `ai_suggested`). No crea usuarios ni maneja contraseñas. Tope de 40 consultas cada 5 min por persona; las rutas `/ai` no se auditan porque no escriben. La búsqueda de clientes y productos ignora tildes y mayúsculas | extensión |
+| Auditoría | `GET /audits` (desde 0011 cada fila trae `entity`, `entityId` y `changes`: el registro tocado y qué cambió, que el middleware deduce de la ruta, del cuerpo de la petición —sin contraseñas, adjuntos, base64 ni textos de más de 2000 caracteres— y de un resumen escalar de la respuesta), `GET /audits/entity/:entity/:id` (ADMIN; línea de tiempo de un registro: quién, cuándo, método y `changes`) | CU-18, brief 2.5 (33) |
+| Búsqueda | `GET /search?q=` (todos los roles; mínimo 2 caracteres; sin tildes ni mayúsculas; hasta 6 por grupo y solo los grupos que el rol puede ver: `products` y `people` todos, `customers` ADMIN y SALES, `suppliers` ADMIN y WAREHOUSE; las personas salen sin correo ni teléfono) | brief 2.5 (29) |
+| Comentarios | `GET /comments?entity=&entityId=`, `POST /comments` (`entity` products/customers/sales/suppliers/batches, `entityId`, `body` hasta 1000, `replyToId` opcional; todos los roles, pero cada rol solo comenta los registros que puede ver: 613 si no), `DELETE /comments/:id` (el autor o ADMIN; borrado lógico). Cada comentario trae `author` y `replyTo { id, author, excerpt, deleted }` | brief 2.5 (33) |
+| Reportes | `GET /reports/sales` (incluye `averageTicket`; por día cada fila trae `cashTotal`, `creditTotal`, `sourceIds` (hasta 20 ids de venta) y `sourceCount`; por producto `sourceIds` y `sourceCount`), `GET /reports/inventory` (`byCategory[].productIds`, hasta 20), `GET /reports/receivables`, `GET/POST /reports/exports` (historial de documentos generados: `POST` acepta `filters` y `summary` —objetos planos de escalares— y devuelve `folio` `R-AAAA-NNNNNN`, `hash` sha256 de `report|format|filters|summary|createdAt|userId` y `verifyUrl`), `GET /reports/verify/:folio` (público, 30 por minuto por IP: datos de emisión del documento del QR; 680 si no existe) | CU-19, CU-20, prototipo 09, brief 2.4 |
+| Chat del equipo | `GET/POST /chat/messages` (canal general o privado con `?with=` / `recipientId`; hilo con `?thread=` / `threadRootId`; cita con `replyToId`; `?after=`, `?before=` y `?around=` para lo nuevo, el historial o saltar a un mensaje; `clientId` evita duplicados), `PATCH /chat/messages/:id` (editar, solo el autor), `DELETE /chat/messages/:id` (eliminar: el autor; en #general también ADMIN), `GET /chat/messages/state?ids=`, `GET /chat/messages/:id/receipts` (solo el autor; con `playedAt` y la lista `played` en notas de voz), `POST /chat/messages/:id/played` (reproduje la nota de voz: mensaje ajeno con audio), `PUT/DELETE /chat/messages/:id/pin`, `GET /chat/pins`, `GET /chat/media?kind=image|file|audio|link` (contenido de la conversación, paginado), `POST /chat/read`, `GET /chat/search` (`q` y/o `day=YYYY-MM-DD`), `POST /chat/attachments` (binario, 10 MB; notas de voz WebM/Ogg/MP4/MPEG con `X-Duration-Ms`), `GET /chat/attachments/:id`, `GET /chat/stream` (avisos en vivo, SSE), `GET /chat/team` (en línea, no leídos, menciones) | prototipo 11 + extensión |
+| Tita (asistente de IA) | `GET /ai/status`, `GET /ai/briefing` (recomendaciones del rol + párrafo de IA), `POST /ai/chat` (herramientas de consulta y de acción con los permisos del rol; acepta adjuntos: imagen, PDF o texto; hasta 24 MB; con `asincrono: true` responde 202 `{ tareaId, conversationId }` y la respuesta se recoge en `GET /ai/mensajes/:tareaId` —202 mientras trabaja, 200 con la respuesta—; `conversationId` y `screen` opcionales), `PATCH /chat/messages/:id/tita-actions` y `PATCH /comments/:id/tita-actions` (mención **@Tita** en el chat del equipo o en un comentario: Tita responde ahí mismo, a nombre de quien la mencionó y con sus herramientas; solo esa persona confirma o descarta las tarjetas), `POST /ai/complete` (continuación sugerida de la pregunta con el modelo rápido; tope 40/min), `GET /ai/conversations`, `GET/DELETE /ai/conversations/:id`, `POST /ai/conversations/:id/events` (historial propio de conversaciones: la API guarda cada pregunta y respuesta; los adjuntos solo por nombre), `POST /ai/drafts`, `POST /ai/invoice` (ADMIN, WAREHOUSE). Las herramientas de acción no escriben: validan con el mismo `parseX` del endpoint y devuelven la petición exacta; la app la ejecuta contra el endpoint real solo si la persona confirma, con `X-AI-Suggested: 1` (auditoría `ai_suggested`). No crea usuarios ni maneja contraseñas. Tope de 40 consultas cada 5 min por persona; las rutas `/ai` no se auditan porque no escriben. La búsqueda de clientes y productos ignora tildes y mayúsculas | extensión |
+| Biblioteca | `GET /library?kind=document\|link&q=&page&limit` (cualquier rol; solo los ítems cuyo `roles` esté vacío o incluya el del solicitante), `POST /library/links` (ADMIN: `title`, `description`, `url` http(s), `roles`), `POST /library/documents` (ADMIN: binario ≤ 10 MB con los mismos tipos que los adjuntos del chat salvo audio; `X-File-Name`, `X-Title`, `X-Description`, `X-Roles` codificados con encodeURIComponent), `PUT /library/:id` (ADMIN: título, descripción, roles y, en enlaces, `url`), `DELETE /library/:id` (ADMIN), `GET /library/:id/file` (quien pueda verlo; imágenes, PDF y texto en línea, el resto como descarga) | brief 2.5 (35) |
 | Contactos del sitio | `POST /contact` (público, 5 por hora por IP, campo trampa `website`), `GET /contact-messages`, `PATCH /contact-messages/:id` | prototipo 12 |
+| Alarmas y avisos | `GET /alarms?status=upcoming\|past` (propias; `past` lista los disparos), `POST /alarms`, `GET/PUT/DELETE /alarms/:id`, `PATCH /alarms/:id/active`, `GET /alarms/:id/ics` y `GET /alarms/ics` (`text/calendar`, RRULE según repetición, `TZID` America/Bogota). Planificador en el proceso (`business-logic/alarms/scheduler.ts`): cada minuto, con bloqueo consultivo, dispara las alarmas vencidas, recalcula el próximo disparo (`nextFireAt`, hora de Colombia), guarda `alarm_fires`, publica el evento en vivo `alarm` por `GET /chat/stream` y envía Web Push. `GET /notifications/due`: lotes vencidos o por vencer (7 días; ADMIN y WAREHOUSE) y cartera vencida o a 5 días de vencer (ADMIN y SALES), con la misma regla del reporte de cartera; a las 07:00 el planificador publica a cada persona el evento `due` y un push con su resumen (una vez al día, `due_notices`). «Pedidos por vencer» queda pendiente: no hay tabla de pedidos. Tita prepara alarmas con `crear_alarma` | brief 2026, puntos 12 y 13 |
+| Calendario | `GET /calendar?from=YYYY-MM-DD&to=YYYY-MM-DD` (cualquier rol; por defecto el mes en curso; como mucho 62 días, si no 400): `{ from, to, items, summary: { pending, overdue, done } }` con `CalendarItem { id, kind: batch\|receivable\|alarm\|closing, title, detail, date, priority: alta\|media\|baja, area, status: pending\|overdue\|done, href }`. Lotes con existencias que vencen en el rango (ADMIN y WAREHOUSE; alta si vencen en 7 días o ya vencieron → `overdue`; media hasta 30 días), cobros de cartera (ADMIN y SALES; fecha en que la última venta a crédito cumple los 30 días del reporte; vencida → alta y `overdue`, a 5 días → media), alarmas propias (próximos disparos del rango iterando `nextFireAt`; los disparos ocurridos, `done`) y cierres de mes (último día de cada mes; `done` si ya pasó). Lógica pura en `business-logic/calendar/build-calendar.ts`. «Pedidos», «nómina» y «conteos de inventario» no existen en el sistema: quedan pendientes | brief 2.5 (31) |
+| Web Push | `GET /push/public-key` (`{ enabled, publicKey }`), `POST /push/subscriptions` (guarda o reemplaza por endpoint), `DELETE /push/subscriptions` `{ endpoint }`. `sendPushTo` da de baja los dispositivos que responden 404/410 | brief 2026, punto 14 |
 
 ### Reglas de negocio implementadas
 
@@ -248,6 +302,10 @@ El backend se empaqueta como imagen de contenedor ([Dockerfile](Dockerfile)); CI
 PostgreSQL efímero, build y construye la imagen. En producción la API corre detrás de un proxy HTTPS
 y la base es un servicio gestionado aparte con respaldos automáticos; la API no guarda estado entre
 peticiones, así que puede reiniciarse sin pérdida.
+
+## Registro de cambios
+
+Ver [CHANGELOG.md](CHANGELOG.md).
 
 ## Licencias
 

@@ -69,6 +69,8 @@ export const config = {
     .map((origin) => origin.trim())
     .filter((origin) => origin !== ""),
   bcryptRounds: 10,
+  /** Datos de ejemplo al arrancar (brief 2026, punto 39): `SEED_ON_START=true` ejecuta el seed idempotente tras db.ping(). */
+  seedOnStart: optional("SEED_ON_START", "false") === "true",
   /**
    * Asistente de IA (Claude, de Anthropic). Sin ANTHROPIC_API_KEY la API funciona igual y las rutas /ai responden 660;
    * la app oculta las funciones de IA. AI_MODEL conversa y usa herramientas; AI_FAST_MODEL redacta textos cortos.
@@ -77,5 +79,14 @@ export const config = {
     apiKey: optional("ANTHROPIC_API_KEY", ""),
     model: optional("AI_MODEL", "claude-sonnet-5-5"),
     fastModel: optional("AI_FAST_MODEL", "claude-haiku-5-5"),
+  },
+  /**
+   * Web Push (brief de octubre de 2026, punto 14). Sin par VAPID (`pnpm vapid` lo genera) el push queda apagado: la
+   * app lo oculta y las rutas /push/subscriptions responden 673; las alarmas y avisos siguen llegando por el stream.
+   */
+  push: {
+    publicKey: optional("VAPID_PUBLIC_KEY", ""),
+    privateKey: optional("VAPID_PRIVATE_KEY", ""),
+    subject: optional("VAPID_SUBJECT", "mailto:admin@mitierrita.local"),
   },
 } as const;
