@@ -2,7 +2,7 @@ import type Anthropic from "@anthropic-ai/sdk";
 import { todayIso } from "../../common/index";
 import { config } from "../../server/config";
 import type { Role } from "../../security/index";
-import type { ChatAttachment, ChatTurn } from "../../models/index";
+import type { ChatAttachment, ChatTurn, Screen } from "../../models/index";
 import { OUTPUT_BUDGET, aiFailure, requireAi, textOf } from "./client";
 import { runTool, toolsFor, type Proposal, type Source, type ToolContext } from "./tools";
 
@@ -12,13 +12,40 @@ const MAX_STEPS = 8;
 
 const ROLE_NAMES: Record<Role, string> = { ADMIN: "administración", SALES: "caja (secretaria)", WAREHOUSE: "bodega" };
 
-const systemPrompt = (role: Role, name: string): string => {
-  const today = new Date().toLocaleDateString("es-CO", { timeZone: "America/Bogota", weekday: "long", day: "numeric", month: "long", year: "numeric" });
+/** Qué hay en cada pantalla, para que Tita sepa desde dónde le hablan y ofrezca el atajo exacto. */
+export const SCREEN_CONTEXT: Record<Screen, string> = {
+  inicio: "Inicio (panel con pendientes y sugerencias del día)",
+  inventario: "Inventario (productos, existencias y precios; pestañas Tabla y Tarjetas; categorías)",
+  lotes: "Lotes y vencimientos (lotes por producto, por vencer y vencidos)",
+  ventas: "Ventas (punto de venta en /ventas/nueva e historial en /ventas/historial)",
+  clientes: "Clientes y cartera (saldos, cupos, abonos)",
+  proveedores: "Proveedores (compras, lotes por vencer)",
+  finanzas: "Finanzas y crédito (escenarios de ampliación, cuota, VPN y TIR)",
+  reportes: "Reportes (ventas, inventario y cartera; PDF y Excel)",
+  tita: "la página de Tita",
+  chat: "Chat del equipo",
+  contactos: "Contactos del sitio público",
+  usuarios: "Usuarios y roles",
+  auditoria: "Auditoría",
+  alarmas: "Alarmas (avisos programados)",
+  perfil: "Mi perfil",
+};
+
+/** Fecha y hora actuales de Colombia, siempre en el prompt: así «mañana a las 8» o «este viernes» salen bien. */
+export const colombiaNow = (now: Date = new Date()): string => {
+  const date = now.toLocaleDateString("es-CO", { timeZone: "America/Bogota", weekday: "long", day: "numeric", month: "long", year: "numeric" });
+  const time = now.toLocaleTimeString("es-CO", { timeZone: "America/Bogota", hour: "2-digit", minute: "2-digit", hour12: true });
+  return `${date}, ${time}`;
+};
+
+export const systemPrompt = (role: Role, name: string, screen?: Screen): string => {
+  const today = colombiaNow();
+  const where = screen ? `\nLa persona le habla desde la pantalla ${SCREEN_CONTEXT[screen]}: si algo se puede hacer allí, diga en qué pestaña o botón, y escriba las rutas de la app como enlaces [texto](/ruta) cuando sirvan de atajo.` : "";
   return `Usted es Tita, la asistente de Mi Tierrita SIG, el sistema de una agropecuaria en Sahagún, Córdoba (Colombia): alimentos balanceados, medicina veterinaria, semillas y fertilizantes, aves de corral, agroquímicos y ferretería agrícola.
 
 Su forma de ser: como la persona de confianza que lleva años en la tienda y se sabe todo de memoria. Cercana y directa: trato de usted, cálida pero sin rodeos ni relleno, sin tecnicismos; va al grano, dice el porqué con cifras y propone el siguiente paso. No exagera ni adula, no usa emojis y no se presenta en cada respuesta. Si le preguntan quién es: "Soy Tita, la asistente de Mi Tierrita; respondo con los datos del sistema que su cuenta puede ver".
 
-Habla con ${name}, del rol ${ROLE_NAMES[role]}. Hoy es ${today} (${todayIso()}, hora de Colombia).
+Habla con ${name}, del rol ${ROLE_NAMES[role]}. Ahora mismo es ${today} (${todayIso()}, hora de Colombia).${where}
 
 Reglas:
 - Toda cifra (precios, existencias, saldos, ventas, indicadores) sale de las herramientas. Nunca invente ni estime un dato que no le dio una herramienta; si no hay herramienta o el rol no la tiene, dígalo con claridad.
@@ -46,7 +73,7 @@ const toContent = (turn: ChatTurn): Anthropic.MessageParam["content"] => {
   return [...blocks, { type: "text", text: turn.content }];
 };
 
-export const askAssistant = async (role: Role, userId: number, userName: string, history: ChatTurn[]): Promise<AssistantReply> => {
+export const askAssistant = async (role: Role, userId: number, userName: string, history: ChatTurn[], screen?: Screen): Promise<AssistantReply> => {
   const ai = requireAi();
   const ctx: ToolContext = { role, userId, proposals: [], sources: [] };
   // Las definiciones de herramientas son iguales en cada pregunta del rol: se marcan para la caché de prompts de
@@ -69,7 +96,7 @@ export const askAssistant = async (role: Role, userId: number, userName: string,
   for (let step = 0; step < MAX_STEPS; step++) {
     let res: Anthropic.Message;
     try {
-      res = await ai.messages.create({ model: config.ai.model, max_tokens: OUTPUT_BUDGET.long, system: systemPrompt(role, userName), tools, messages });
+      res = await ai.messages.create({ model: config.ai.model, max_tokens: OUTPUT_BUDGET.long, system: systemPrompt(role, userName, screen), tools, messages });
     } catch (err) {
       return aiFailure(err);
     }
