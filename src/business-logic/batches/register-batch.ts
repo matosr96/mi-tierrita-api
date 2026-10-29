@@ -1,5 +1,5 @@
 import { ErrorCodes, domainError, todayIso } from "../../common/index";
-import { db, isForeignKeyViolation } from "../../data-sources/index";
+import { db, isForeignKeyViolation, type Queryable } from "../../data-sources/index";
 import { toProductBatchResponse, type ProductBatchResponse, type ProductBatchRow } from "../../models/index";
 import { lockProductById } from "../products/find-product";
 import { BATCH_COLUMNS, BATCH_FROM } from "./batch-queries";
@@ -12,38 +12,43 @@ export type RegisterBatchInput = {
   supplierId?: number | undefined;
 };
 
+/** Cuerpo del registro: bloquea el producto, crea el lote y sube el stock con el cliente recibido. */
+const insertBatch = async (input: RegisterBatchInput, client: Queryable): Promise<ProductBatchResponse> => {
+  const product = await lockProductById(input.productId, client);
+  if (product === undefined) throw domainError(ErrorCodes.PRODUCT_NOT_FOUND);
+  if (!product.active) throw domainError(ErrorCodes.PRODUCT_INACTIVE);
+
+  let batchId: number | undefined;
+  try {
+    const { rows } = await client.query<{ id: number }>(
+      `INSERT INTO product_batches (product_id, supplier_id, quantity, quantity_remaining, unit_cost, expires_at)
+       VALUES ($1, $2, $3, $3, $4, $5) RETURNING id`,
+      [input.productId, input.supplierId ?? null, input.quantity, input.unitCost ?? product.purchasePrice, input.expiresAt],
+    );
+    batchId = rows[0]?.id;
+  } catch (err) {
+    if (isForeignKeyViolation(err)) throw domainError(ErrorCodes.SUPPLIER_NOT_FOUND);
+    throw err;
+  }
+  await client.query(`UPDATE products SET stock = stock + $2, updated_at = now() WHERE id = $1`, [input.productId, input.quantity]);
+
+  const { rows } = await client.query<ProductBatchRow>(`SELECT ${BATCH_COLUMNS} ${BATCH_FROM} WHERE b.id = $1`, [batchId]);
+  const batch = rows[0];
+  if (batch === undefined) throw new Error("Lote recién creado no encontrado");
+  return toProductBatchResponse(batch, todayIso());
+};
+
 /**
  * CU-06 Registrar lote (y CU-13 compra a proveedor): crea el lote y aumenta el stock del
  * producto en la misma transacción, con la fila del producto bloqueada.
  * Si no se indica costo unitario se usa el precio de compra vigente del producto.
  * Un lote que ya llega vencido se rechaza: subiría el stock con unidades que FEFO nunca puede vender.
+ * `q`: sin indicarlo abre su propia transacción; con el cliente de una transacción en curso (recepción de un pedido)
+ * trabaja dentro de ella y la confirma o revierte quien la abrió.
  */
-export const registerBatch = async (input: RegisterBatchInput): Promise<ProductBatchResponse> => {
+export const registerBatch = async (input: RegisterBatchInput, q: Queryable = db): Promise<ProductBatchResponse> => {
   if (input.expiresAt < todayIso()) {
     throw domainError(ErrorCodes.VALIDATION, [{ path: "expiresAt", message: "El lote ya está vencido; no puede ingresar a bodega" }]);
   }
-  return db.transaction(async (client) => {
-    const product = await lockProductById(input.productId, client);
-    if (product === undefined) throw domainError(ErrorCodes.PRODUCT_NOT_FOUND);
-    if (!product.active) throw domainError(ErrorCodes.PRODUCT_INACTIVE);
-
-    let batchId: number | undefined;
-    try {
-      const { rows } = await client.query<{ id: number }>(
-        `INSERT INTO product_batches (product_id, supplier_id, quantity, quantity_remaining, unit_cost, expires_at)
-         VALUES ($1, $2, $3, $3, $4, $5) RETURNING id`,
-        [input.productId, input.supplierId ?? null, input.quantity, input.unitCost ?? product.purchasePrice, input.expiresAt],
-      );
-      batchId = rows[0]?.id;
-    } catch (err) {
-      if (isForeignKeyViolation(err)) throw domainError(ErrorCodes.SUPPLIER_NOT_FOUND);
-      throw err;
-    }
-    await client.query(`UPDATE products SET stock = stock + $2, updated_at = now() WHERE id = $1`, [input.productId, input.quantity]);
-
-    const { rows } = await client.query<ProductBatchRow>(`SELECT ${BATCH_COLUMNS} ${BATCH_FROM} WHERE b.id = $1`, [batchId]);
-    const batch = rows[0];
-    if (batch === undefined) throw new Error("Lote recién creado no encontrado");
-    return toProductBatchResponse(batch, todayIso());
-  });
+  return q === db ? db.transaction((client) => insertBatch(input, client)) : insertBatch(input, q);
 };
