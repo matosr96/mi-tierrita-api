@@ -10,7 +10,7 @@ export const MAX_ATTACHMENTS = 4;
 export type InvoiceImageInput = { image: string; mediaType: "image/jpeg" | "image/png" | "image/webp" };
 export const DRAFT_KINDS = ["collection_message", "contact_reply", "report_summary", "scenario_explain"] as const;
 export type DraftKind = (typeof DRAFT_KINDS)[number];
-export type DraftRequest = { kind: DraftKind; customerId?: number | undefined; contactId?: number | undefined; scenarioId?: number | undefined; from?: string | undefined; to?: string | undefined };
+export type DraftRequest = { kind: DraftKind; customerId?: number | undefined; contactId?: number | undefined; projectId?: number | undefined; from?: string | undefined; to?: string | undefined };
 
 /** Asistente de IA: la conversación viaja completa en cada pregunta; el servidor guarda la última pregunta y su respuesta. */
 export const MAX_TURNS = 20;
@@ -141,9 +141,9 @@ export const parseDraftRequest = (body: unknown): DraftRequest => {
   const kind = v.oneOf<DraftKind>("kind", DRAFT_KINDS);
   const customerId = v.number("customerId", { integer: true, min: 1 }, false);
   const contactId = v.number("contactId", { integer: true, min: 1 }, false);
-  const scenarioId = v.number("scenarioId", { integer: true, min: 1 }, false);
+  const projectId = v.number("projectId", { integer: true, min: 1 }, false);
   const from = v.date("from", false);
   const to = v.date("to", false);
   v.done();
-  return { kind: kind!, customerId, contactId, scenarioId, from, to };
+  return { kind: kind!, customerId, contactId, projectId, from, to };
 };

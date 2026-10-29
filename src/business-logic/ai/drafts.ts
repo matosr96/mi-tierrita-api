@@ -6,7 +6,7 @@ import type { DraftKind, DraftRequest } from "../../models/index";
 import { getCustomerBalance } from "../customers/index";
 import { listSales } from "../sales/index";
 import { salesReport } from "../reports/index";
-import { getScenario } from "../financial/index";
+import { getProject } from "../financial/index";
 import { OUTPUT_BUDGET, aiFailure, requireAi, textOf } from "./client";
 
 export type Draft = { kind: DraftKind; text: string; phone: string | null };
@@ -102,11 +102,12 @@ const reportSummary = async (from: string, to: string): Promise<Draft> => {
   return { kind: "report_summary", text, phone: null };
 };
 
-const scenarioExplain = async (scenarioId: number): Promise<Draft> => {
-  const s = await getScenario(scenarioId);
+const scenarioExplain = async (projectId: number): Promise<Draft> => {
+  const p = await getProject(projectId);
+  const { monthly: _monthly, ...financing } = p.result.financing;
   const text = await write(
-    "Explica a la dueña de una agropecuaria, en lenguaje sencillo y sin jerga, si le conviene este escenario de ampliación con crédito y por qué. Máximo 130 palabras, en 2 párrafos: (1) el veredicto con VPN y TIR traducidos a palabras (VPN > 0 crea valor; TIR frente a la tasa exigida); (2) qué tendría que pasar para que cambie (cuota mensual, cobertura de la cuota con las ventas, recuperación). No recomiendes tomar o no el crédito como asesoría financiera: describe lo que muestran las cifras.",
-    { nombre: s.name, supuestos: s.assumptions, resultados: s.results },
+    "Explica a la dueña de una agropecuaria, en lenguaje sencillo y sin jerga, si le conviene este proyecto de ampliación con crédito y por qué. Máximo 130 palabras, en 2 párrafos: (1) el veredicto con VPN y TIR traducidos a palabras (VPN > 0 crea valor; TIR frente a la tasa mínima exigida y frente a la tasa del crédito); (2) qué tendría que pasar para que cambie (cuota mensual, cobertura de la cuota con el flujo libre, recuperación, escenario pesimista). No recomiendes tomar o no el crédito como asesoría financiera: describe lo que muestran las cifras.",
+    { nombre: p.name, supuestos: p.input, resultados: { ...p.result, financing } },
   );
   return { kind: "scenario_explain", text, phone: null };
 };
@@ -124,7 +125,7 @@ export const createDraft = async (req: DraftRequest): Promise<Draft> => {
       if (req.from === undefined || req.to === undefined || req.from > req.to) throw domainError(ErrorCodes.VALIDATION, [{ path: "from", message: "Rango de fechas inválido" }]);
       return reportSummary(req.from, req.to);
     case "scenario_explain":
-      if (req.scenarioId === undefined) throw domainError(ErrorCodes.VALIDATION, [{ path: "scenarioId", message: "Campo obligatorio" }]);
-      return scenarioExplain(req.scenarioId);
+      if (req.projectId === undefined) throw domainError(ErrorCodes.VALIDATION, [{ path: "projectId", message: "Campo obligatorio" }]);
+      return scenarioExplain(req.projectId);
   }
 };

@@ -2,6 +2,17 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es/1.1.0/). Fechas en hora de Colombia.
 
+## [Sin publicar] · Fase B del brief: simulador financiero (29/10/2026)
+
+### Añadido
+- Simulador financiero por unidades (`business-logic/financial/simulator.ts`, función pura `simulate`): Mercado, Competencia, Costos por unidades vendidas con IPC, precio automático con margen sobre el costo, Inversión con depreciación y amortización, Financiación con resumen anual y cobertura, Flujo de caja libre sin deuda, tornado y escenarios pesimista, base y optimista. Es la única fuente de las cifras del simulador.
+- `GET /financial/simulator/defaults` y `POST /financial/simulator/calculate`.
+- Proyectos guardados (`financial_projects`, migración `0017_simulador_proyectos`): `GET/POST /financial/projects`, `GET /financial/projects/compare`, `GET/PUT/DELETE /financial/projects/:id`; códigos 715 y 716.
+- Dos proyectos de ejemplo en `pnpm db:seed` y pruebas en `tests/financial-simulator.test.ts`.
+
+### Cambiado
+- Tita (`escenarios_financieros`, `crear_escenario` y el borrador `scenario_explain`, ahora con `projectId`) lee los proyectos del simulador en lugar de los escenarios del capítulo 5.
+
 ## [Sin publicar] · Fase A del brief de octubre de 2026
 
 ### Añadido

@@ -77,6 +77,10 @@ export const ErrorCodes = {
   STOCK_COUNT_LINES_PENDING: "712",
   STOCK_COUNT_EXPIRY_REQUIRED: "713",
   STOCK_COUNT_SHORTAGE_EXCEEDS_STOCK: "714",
+
+  // Proyectos del simulador (0017)
+  FINANCIAL_PROJECT_NOT_FOUND: "715",
+  FINANCIAL_PROJECT_NOT_OWNER: "716",
 } as const;
 
 export type ErrorCode = (typeof ErrorCodes)[keyof typeof ErrorCodes];
@@ -140,6 +144,8 @@ export const httpStatusByCode: Record<ErrorCode, number> = {
   "712": 422,
   "713": 400,
   "714": 409,
+  "715": 404,
+  "716": 403,
 };
 
 /**

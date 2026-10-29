@@ -587,6 +587,78 @@ paths:
                         npvHigh: { type: number }
                         amplitude: { type: number }
 
+  # ------------------------------------------------------------ Simulador financiero (Fase B, migración 0017)
+  /financial/simulator/defaults:
+    get:
+      tags: [Finanzas]
+      summary: Supuestos del ejemplo de la ampliación ($94,5 M) y su cálculo completo — ADMIN
+      responses:
+        "200":
+          description: "`{ input, result }`: entrada del simulador y las siete secciones calculadas"
+          content: { application/json: { schema: { $ref: "#/components/schemas/SimulatorCalculation" } } }
+  /financial/simulator/calculate:
+    post:
+      tags: [Finanzas]
+      summary: Recalcula sin guardar (la pantalla lo llama al editar un campo) — ADMIN
+      description: >
+        Cada sección y campo de `input` es opcional: lo que falte se toma del ejemplo; las listas de competidores y
+        costos fijos, si llegan, reemplazan las del ejemplo. Las cuotas de los competidores no pueden sumar más de 1.
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, properties: { input: { $ref: "#/components/schemas/SimulatorInput" } } } } }
+      responses:
+        "200": { description: Cálculo, content: { application/json: { schema: { $ref: "#/components/schemas/SimulatorCalculation" } } } }
+        "400": { description: "Entrada inválida (`details` con la ruta, p. ej. `input.market.population`)" }
+  /financial/projects:
+    get:
+      tags: [Finanzas]
+      summary: Proyectos guardados del simulador; por omisión los del usuario, `?alcance=todos` los de todos — ADMIN
+      parameters:
+        - { name: alcance, in: query, schema: { type: string, enum: [todos] } }
+        - { $ref: "#/components/parameters/page" }
+        - { $ref: "#/components/parameters/limit" }
+      responses:
+        "200": { description: "`{ count, page, pages, items }` con nombre, dueño, supuestos clave (`highlights`) e `indicators` (VPN, TIR, recuperación, B/C, cuota, cobertura mínima)" }
+    post:
+      tags: [Finanzas]
+      summary: «Guardar como» — crea un proyecto del usuario con `{ name, input }` — ADMIN
+      responses:
+        "201": { description: "Proyecto con `input` y `result` recalculado" }
+        "400": { description: Nombre o entrada inválidos }
+  /financial/projects/compare:
+    get:
+      tags: [Finanzas]
+      summary: Compara proyectos lado a lado con sus escenarios pesimista, base y optimista — ADMIN
+      parameters: [{ name: ids, in: query, required: true, schema: { type: string, example: "1,2" } }]
+      responses:
+        "200": { description: "`{ projects: [...] }` en el orden pedido" }
+        "400": { description: Menos de dos ids }
+        "404": { description: "715 con `missing`" }
+  /financial/projects/{id}:
+    get:
+      tags: [Finanzas]
+      summary: Abre un proyecto (supuestos guardados y todas las secciones recalculadas) — ADMIN
+      parameters: [{ $ref: "#/components/parameters/id" }]
+      responses:
+        "200": { description: Proyecto }
+        "404": { description: "715" }
+    put:
+      tags: [Finanzas]
+      summary: «Guardar proyecto» — sobrescribe `input` (y `name`, si llega); solo el dueño — ADMIN
+      parameters: [{ $ref: "#/components/parameters/id" }]
+      responses:
+        "200": { description: Proyecto actualizado }
+        "403": { description: "716: no es el dueño" }
+        "404": { description: "715" }
+    delete:
+      tags: [Finanzas]
+      summary: Elimina un proyecto propio — ADMIN
+      parameters: [{ $ref: "#/components/parameters/id" }]
+      responses:
+        "204": { description: Eliminado }
+        "403": { description: "716: no es el dueño" }
+        "404": { description: "715" }
+
   # ------------------------------------------------------------ Auditoría
   /audits:
     get:
@@ -2083,6 +2155,54 @@ components:
       description: "613 rol insuficiente (details.requiredRoles)"
       content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } }
   schemas:
+    SimulatorInput:
+      type: object
+      description: Supuestos del simulador por unidades. Fracciones para porcentajes (0.34 = 34 %); el desempleo en fracción (−0,2 puntos = −0.002).
+      properties:
+        market:
+          type: object
+          properties:
+            population: { type: integer }
+            purchaseIntent: { type: number }
+            consumptionPerPerson: { type: number, description: unidades por persona al mes }
+            gdpGrowth: { type: number }
+            gdpSensitivity: { type: number }
+            unemploymentChange: { type: number }
+            unemploymentSensitivity: { type: number }
+        competition:
+          type: object
+          properties:
+            competitors: { type: array, maxItems: 20, items: { type: object, properties: { name: { type: string }, share: { type: number }, satisfaction: { type: number, minimum: 0, maximum: 5 } } } }
+            conversionFactor: { type: number }
+        costs:
+          type: object
+          properties:
+            fixedCosts: { type: array, maxItems: 20, items: { type: object, properties: { name: { type: string }, annual: { type: number } } } }
+            variableUnitCost: { type: number }
+            inflation: { type: number }
+            marginOnCost: { type: number }
+        investment:
+          type: object
+          properties:
+            fixedAssets: { type: number }
+            workingCapital: { type: number }
+            deferred: { type: number }
+            contingencies: { type: number }
+            depreciationYears: { type: integer }
+            deferredAmortizationYears: { type: integer }
+        financing:
+          type: object
+          properties: { creditPct: { type: number }, creditRateEA: { type: number }, termMonths: { type: integer } }
+        evaluation:
+          type: object
+          properties: { horizonYears: { type: integer }, discountRate: { type: number }, taxRate: { type: number } }
+    SimulatorCalculation:
+      type: object
+      properties:
+        input: { $ref: "#/components/schemas/SimulatorInput" }
+        result:
+          type: object
+          description: "Secciones `market`, `competition`, `costs`, `investment`, `financing` (mensual, anual y cobertura), `cashFlow`, `indicators`, `risks` (tornado) y `scenarios` (pesimista, base, optimista). Ver `business-logic/financial/simulator.ts`."
     AlarmInput:
       type: object
       required: [title, timeOfDay, repeat]

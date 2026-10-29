@@ -12,6 +12,7 @@ import { createHash } from "node:crypto";
 import { deflateSync } from "node:zlib";
 import { addDaysIso } from "../common/dates";
 import { BASE_ASSUMPTIONS, type ScenarioInput } from "../business-logic/financial/engine";
+import { SIMULATOR_DEFAULTS, type SimulatorInput } from "../business-logic/financial/simulator";
 import type { ExportFormat, ExportReport, ExportData } from "../models/exports";
 import type { PaymentType } from "../models/sales";
 import type { Role } from "../security/roles";
@@ -428,6 +429,16 @@ export const demoBatchPlan = (anchor: string, products: DemoProduct[], demand: M
   });
   return out;
 };
+
+/* ---------- proyectos del simulador financiero ---------- */
+
+export type DemoProject = { name: string; input: SimulatorInput };
+
+/** El ejemplo de la ampliación del brief con 100 % y 70 % de crédito (cifras de ejemplo, no del negocio real). */
+export const demoProjects = (): DemoProject[] => [
+  { name: "[Demo] Ampliación del local · 100 % con crédito", input: structuredClone(SIMULATOR_DEFAULTS) },
+  { name: "[Demo] Ampliación del local · 70 % con crédito", input: { ...structuredClone(SIMULATOR_DEFAULTS), financing: { ...SIMULATOR_DEFAULTS.financing, creditPct: 0.7 } } },
+];
 
 /* ---------- escenarios financieros ---------- */
 

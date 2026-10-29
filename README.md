@@ -209,6 +209,8 @@ documentar en `docs/openapi.yaml` → migración si cambia el esquema.
 | 712 | Faltan líneas por contar para enviar el conteo (trae `pending` y `productIds`) | 422 |
 | 713 | Falta (o es anterior a hoy) la fecha de vencimiento del lote de ajuste de un sobrante (trae `[{ path: "expiresAt.<productId>", productId, message }]`) | 400 |
 | 714 | Un faltante del conteo es mayor que las unidades en lotes del producto (trae `requested`, `available`) | 409 |
+| 715 | Proyecto del simulador no encontrado (trae `missing` en la comparación) | 404 |
+| 716 | Solo el dueño del proyecto del simulador puede guardarlo encima o eliminarlo | 403 |
 
 ## Estado de la API
 
@@ -229,7 +231,8 @@ agrega 5 (respuesta en dos pasos e historial de Tita) y `0008_alarmas_avisos_pus
 | Ventas | `POST/GET /sales`, `GET /sales/:id`, `POST /sales/:id/void` | CU-08 (FEFO), CU-09, CU-10, CU-11, RF-03.4 |
 | Clientes y cartera | `POST/GET /customers`, `GET/PUT /customers/:id`, `GET /customers/:id/balance`, `POST /customers/:id/payments` | CU-12 |
 | Proveedores | `POST/GET /suppliers`, `PUT /suppliers/:id`, `POST /suppliers/:id/purchases` | CU-13 |
-| Finanzas | `POST/GET /financial/scenarios`, `GET .../compare`, `GET .../:id`, `.../amortization`, `.../sensitivity`, `.../sensitivity/bivariate`, `.../tornado` | CU-14 a CU-17 |
+| Finanzas (capítulo 5) | `POST/GET /financial/scenarios`, `GET .../compare`, `GET .../:id`, `.../amortization`, `.../sensitivity`, `.../sensitivity/bivariate`, `.../tornado`. Desde la Fase B la app ya no los muestra: siguen como respaldo del capítulo 5 del TCC | CU-14 a CU-17 |
+| Simulador financiero (0017) | ADMIN. `GET /financial/simulator/defaults` (ejemplo de $94,5 M y su cálculo), `POST /financial/simulator/calculate` (`{ input }` → `{ input, result }`, sin guardar), `GET /financial/projects` (los propios; `?alcance=todos`), `POST /financial/projects` («Guardar como», `{ name, input }`), `GET .../compare?ids=`, `GET/PUT/DELETE /financial/projects/:id` (PUT = «Guardar proyecto»; PUT y DELETE solo el dueño, 716). Se guarda solo `input`; las cifras las recalcula `simulator.ts` en cada lectura. Módulo nuevo: no estaba en el documento 06 | Brief, sección 3 |
 | Auditoría | `GET /audits` (desde 0011 cada fila trae `entity`, `entityId` y `changes`: el registro tocado y qué cambió, que el middleware deduce de la ruta, del cuerpo de la petición —sin contraseñas, adjuntos, base64 ni textos de más de 2000 caracteres— y de un resumen escalar de la respuesta), `GET /audits/entity/:entity/:id` (ADMIN; línea de tiempo de un registro: quién, cuándo, método y `changes`) | CU-18, brief 2.5 (33) |
 | Búsqueda | `GET /search?q=` (todos los roles; mínimo 2 caracteres; sin tildes ni mayúsculas; hasta 6 por grupo y solo los grupos que el rol puede ver: `products` y `people` todos, `customers` ADMIN y SALES, `suppliers` ADMIN y WAREHOUSE; las personas salen sin correo ni teléfono) | brief 2.5 (29) |
 | Comentarios | `GET /comments?entity=&entityId=`, `POST /comments` (`entity` products/customers/sales/suppliers/batches, `entityId`, `body` hasta 1000, `replyToId` opcional; todos los roles, pero cada rol solo comenta los registros que puede ver: 613 si no), `DELETE /comments/:id` (el autor o ADMIN; borrado lógico). Cada comentario trae `author` y `replyTo { id, author, excerpt, deleted }` | brief 2.5 (33) |
@@ -301,6 +304,17 @@ agrega 5 (respuesta en dos pasos e historial de Tita) y `0008_alarmas_avisos_pus
   `1 Motor de calculo.py`; las pruebas reproducen los escenarios A, B, C y D de `2 Resultados del modelo.json`
   y las tablas 8 a 12 del capítulo 5. Los resultados se guardan al crear el escenario (RF-06.8) y la
   sensibilidad, la grilla bivariante y el tornado se calculan sobre los supuestos guardados.
+- **Simulador financiero (Fase B).** `business-logic/financial/simulator.ts` (función pura `simulate`) es la única
+  fuente de las cifras de la pantalla de Finanzas, del informe PDF/Excel, de «Exportar escenario» y de Tita
+  (`escenarios_financieros`, `crear_escenario`, borrador `scenario_explain` con `projectId`). Secciones en cadena:
+  demanda = población × disposición × consumo; crecimiento = PIB × sensibilidad + desempleo × sensibilidad; cuota de
+  mercado = Σ cuota × (1 − satisfacción ÷ 5) × factor de conversión; costos por unidades vendidas con IPC desde el año 2;
+  precio = costo unitario del año 1 × (1 + margen sobre el costo), que desde el año 2 sube con el IPC; impuesto sobre
+  EBITDA − depreciación y amortización; flujo libre sin deuda descontado a la tasa mínima exigida; año final con
+  capital de trabajo y salvamento al valor neto en libros; crédito en sistema francés solo para Financiación y
+  cobertura (flujo libre del año ÷ cuotas del año). Tornado: precio, costo variable y demanda ±10 %, tasa ±3 puntos,
+  IPC ±2 puntos; escenarios pesimista (demanda −10 %, precio −5 %) y optimista (+10 %, +5 %). Decisiones en
+  `DECISIONES-FASE-B.md`; pruebas en `tests/financial-simulator.test.ts`.
 - **Reportes (RF-08.4).** Todos se agregan en SQL; nunca se traen listas completas a memoria.
 
 ## Decisiones pendientes con el negocio

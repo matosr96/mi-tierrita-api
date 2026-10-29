@@ -21,3 +21,4 @@ export * from "./calendar";
 export * from "./orders";
 export * from "./payroll";
 export * from "./stock-counts";
+export * from "./simulator";

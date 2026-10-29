@@ -5,7 +5,7 @@
  *
  * Qué crea: 3 usuarios `demo.*` (uno por rol, clave Demo-2026), 6 categorías, 56 productos `DEMO-…`, 5 proveedores,
  * lotes (lejanos, por vencer en 3/10/25 días y vencidos), 28 clientes, ventas de contado y a crédito de los últimos
- * 120 días con anulaciones y abonos, 3 escenarios financieros, 34 mensajes del chat (hilo, cita, fijado, privados y
+ * 120 días con anulaciones y abonos, 3 escenarios financieros, 2 proyectos del simulador, 34 mensajes del chat (hilo, cita, fijado, privados y
  * 3 adjuntos reales guardados en la base), 3 mensajes de contacto, 5 exportaciones de reportes, 4 pedidos (a proveedores
  * y de clientes, con fechas de los próximos días), 3 empleados con la quincena en curso en borrador y 2 conteos de
  * inventario programados.
@@ -28,6 +28,7 @@ import { createContactMessage } from "../business-logic/contact/create-contact-m
 import { createCustomer } from "../business-logic/customers/create-customer";
 import { registerPayment } from "../business-logic/customers/register-payment";
 import { createScenario } from "../business-logic/financial/create-scenario";
+import { saveProject } from "../business-logic/financial/save-project";
 import { createProduct } from "../business-logic/products/create-product";
 import { recordExport } from "../business-logic/reports/record-export";
 import { registerSale } from "../business-logic/sales/register-sale";
@@ -59,6 +60,7 @@ import {
   demoReportExports,
   demoSalesPlan,
   demoScenarios,
+  demoProjects,
   demoSuppliers,
   demoUsers,
 } from "./seed-data";
@@ -66,7 +68,7 @@ import {
 export type SeedCounter = { created: number; skipped: number };
 export type SeedSummary = Record<string, SeedCounter>;
 
-const ORDER = ["usuarios", "categorías", "proveedores", "productos", "clientes", "lotes", "ventas", "anulaciones", "abonos", "escenarios", "adjuntos", "mensajes", "contactos", "exportaciones", "pedidos", "empleados", "nómina", "conteos"];
+const ORDER = ["usuarios", "categorías", "proveedores", "productos", "clientes", "lotes", "ventas", "anulaciones", "abonos", "escenarios", "proyectos", "adjuntos", "mensajes", "contactos", "exportaciones", "pedidos", "empleados", "nómina", "conteos"];
 
 const idOf = async (sql: string, params: unknown[]): Promise<number | undefined> => (await db.query<{ id: number }>(sql, params)).rows[0]?.id;
 
@@ -250,6 +252,17 @@ export const runSeed = async (): Promise<SeedSummary> => {
     }
     await createScenario(adminId, { name: s.name, input: s.input });
     count("escenarios", true);
+  }
+
+  // ---------------------------------------------------------------- proyectos del simulador (nombre)
+  for (const p of demoProjects()) {
+    const exists = await idOf(`SELECT id FROM financial_projects WHERE name = $1`, [p.name]);
+    if (exists !== undefined) {
+      count("proyectos", false);
+      continue;
+    }
+    await saveProject(adminId, { name: p.name, input: p.input });
+    count("proyectos", true);
   }
 
   // ---------------------------------------------------------------- chat del equipo (clientId determinista)

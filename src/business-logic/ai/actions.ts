@@ -9,7 +9,7 @@ import {
   parseCreateProduct,
   parseCreatePurchase,
   parseCreateSale,
-  parseCreateScenario,
+  parseSaveProject,
   parseCreateSupplier,
   parseCreateAlarm,
   parseCreateChatMessage,
@@ -376,39 +376,39 @@ export const ACTION_TOOLS: Record<string, ToolDef> = {
   /* ------------------------------------------------------------------ finanzas, contactos y equipo */
   crear_escenario: {
     roles: [Roles.ADMIN],
-    label: "Nuevo escenario",
+    label: "Nuevo proyecto del simulador",
     spec: {
       name: "crear_escenario",
       description:
-        "Prepara un escenario de evaluación de la ampliación con crédito: nombre, inversión fija (pesos), porcentaje financiado (0 a 1), plazo en meses, aumento de ventas (fracción, 0.2 = 20 %), gastos adicionales al mes y si el crédito cubre el capital de trabajo. El servidor calcula VPN, TIR y demás al crearlo.",
+        "Prepara un proyecto del simulador financiero a partir del ejemplo de la ampliación del local, cambiando solo lo que se indique: nombre, parte con crédito (0 a 1), plazo en meses, tasa del crédito EA (fracción), margen sobre el costo (fracción, 0.34 = 34 %), IPC (fracción) y tasa mínima exigida (fracción). El servidor calcula VPN, TIR y demás al guardarlo.",
       input_schema: obj(
-        { name: { type: "string" }, fixedInvestment: { type: "number" }, creditPct: { type: "number" }, termMonths: { type: "integer" }, salesIncrease: { type: "number" }, additionalExpensesMonth: { type: "number" }, creditCoversWorkingCapital: { type: "boolean" } },
-        ["name", "fixedInvestment", "creditPct", "termMonths", "salesIncrease", "additionalExpensesMonth"],
+        { name: { type: "string" }, creditPct: { type: "number" }, termMonths: { type: "integer" }, creditRateEA: { type: "number" }, marginOnCost: { type: "number" }, inflation: { type: "number" }, discountRate: { type: "number" } },
+        ["name"],
       ),
     },
     run: async (i, ctx) => {
-      const body = clean({
-        name: str(i["name"]),
-        fixedInvestment: num(i["fixedInvestment"]),
-        creditPct: num(i["creditPct"]),
-        termMonths: int(i["termMonths"]),
-        salesIncrease: num(i["salesIncrease"]),
-        additionalExpensesMonth: num(i["additionalExpensesMonth"]),
-        creditCoversWorkingCapital: typeof i["creditCoversWorkingCapital"] === "boolean" ? i["creditCoversWorkingCapital"] : undefined,
-      });
-      const v = validate(parseCreateScenario, body);
+      const financing = clean({ creditPct: num(i["creditPct"]), termMonths: int(i["termMonths"]), creditRateEA: num(i["creditRateEA"]) });
+      const costs = clean({ marginOnCost: num(i["marginOnCost"]), inflation: num(i["inflation"]) });
+      const evaluation = clean({ discountRate: num(i["discountRate"]) });
+      const body = { name: str(i["name"]), input: { financing, costs, evaluation } };
+      const v = validate(parseSaveProject, body);
       if (!v.ok) return v.error;
+      const changes = [
+        financing["creditPct"] !== undefined ? `${Math.round(Number(financing["creditPct"]) * 100)} % con crédito` : null,
+        financing["termMonths"] !== undefined ? `plazo ${financing["termMonths"]} meses` : null,
+        financing["creditRateEA"] !== undefined ? `crédito al ${(Number(financing["creditRateEA"]) * 100).toFixed(1)} % EA` : null,
+        costs["marginOnCost"] !== undefined ? `margen sobre el costo ${Math.round(Number(costs["marginOnCost"]) * 100)} %` : null,
+        costs["inflation"] !== undefined ? `IPC ${(Number(costs["inflation"]) * 100).toFixed(1)} %` : null,
+        evaluation["discountRate"] !== undefined ? `tasa mínima ${(Number(evaluation["discountRate"]) * 100).toFixed(1)} %` : null,
+      ].filter((x): x is string => x !== null);
       return propose(ctx, {
         type: "action",
         kind: "scenario",
-        title: `Escenario: ${body["name"]}`,
-        lines: [
-          `Inversión ${money(Number(body["fixedInvestment"]))} · ${Math.round(Number(body["creditPct"]) * 100)} % con crédito a ${body["termMonths"]} meses`,
-          `Ventas +${Math.round(Number(body["salesIncrease"]) * 100)} % · gastos adicionales ${money(Number(body["additionalExpensesMonth"]))} al mes`,
-        ],
+        title: `Proyecto: ${body.name}`,
+        lines: [changes.length > 0 ? `Cambios sobre el ejemplo: ${changes.join(" · ")}` : "Igual al ejemplo de la ampliación del local"],
         warnings: [],
-        confirmLabel: "Crear escenario",
-        request: { method: "POST", path: "/financial/scenarios", body },
+        confirmLabel: "Guardar proyecto",
+        request: { method: "POST", path: "/financial/projects", body },
       });
     },
   },

@@ -11,7 +11,7 @@ import { getCustomerBalance, listCustomers, findCustomerById } from "../customer
 import { inventoryReport, receivablesReport, salesReport } from "../reports/index";
 import { getSale, listSales } from "../sales/index";
 import { listSuppliers, findSupplierById } from "../suppliers/index";
-import { getScenario, listScenarios } from "../financial/index";
+import { getProject, listProjects } from "../financial/index";
 import { listDueOrders } from "../orders/list-due-orders";
 import { listUpcomingPayroll } from "../payroll/list-upcoming-payroll";
 import { listScheduledCounts } from "../stock-counts/list-scheduled-counts";
@@ -162,18 +162,23 @@ const READ_TOOLS: Record<string, ToolDef> = {
   },
   escenarios_financieros: {
     roles: [Roles.ADMIN],
-    label: "Finanzas y crédito",
+    label: "Simulador financiero",
     spec: {
       name: "escenarios_financieros",
       description:
-        "Escenarios de evaluación de la ampliación del local con crédito: sin id lista los escenarios con sus indicadores (VPN, TIR, recuperación, cuota); con id da los supuestos y resultados completos.",
+        "Proyectos guardados del simulador financiero (ampliación del local: mercado, competencia, costos, inversión, financiación, flujo de caja y riesgos). Sin id lista los proyectos con VPN, TIR, recuperación, B/C, cuota y cobertura mínima; con id da los supuestos y todas las secciones calculadas, con los escenarios pesimista, base y optimista. Son las mismas cifras de la pantalla de Finanzas y del informe.",
       input_schema: obj({ id: { type: "integer" } }),
     },
-    run: async (i) => {
+    run: async (i, ctx) => {
       const id = int(i["id"]);
-      if (id !== undefined) return getScenario(id);
-      const r = await listScenarios(page(20));
-      return { escenarios: r.items.map((s) => ({ id: s.id, nombre: s.name, inversion: s.fixedInvestment, credito: s.creditPct, plazoMeses: s.termMonths, aumentoVentas: s.salesIncrease, indicadores: s.indicators })) };
+      if (id !== undefined) {
+        const p = await getProject(id);
+        // La tabla mes a mes del crédito no aporta a la respuesta: basta el resumen anual.
+        const { monthly: _monthly, ...financing } = p.result.financing;
+        return { ...p, result: { ...p.result, financing } };
+      }
+      const r = await listProjects(ctx.userId, "all", page(20));
+      return { proyectos: r.items.map((p) => ({ id: p.id, nombre: p.name, dueño: p.username, supuestos: p.highlights, indicadores: p.indicators })) };
     },
   },
   categorias: {
