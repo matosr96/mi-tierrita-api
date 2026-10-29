@@ -4,4 +4,8 @@ export * from "./list-users";
 export * from "./get-user";
 export * from "./change-own-password";
 export * from "./update-own-profile";
+export * from "./update-own-avatar";
+export * from "./remove-own-avatar";
+export * from "./get-user-avatar";
 export * from "./touch-presence";
+export * from "./directory";

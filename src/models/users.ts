@@ -1,3 +1,4 @@
+import { ErrorCodes, domainError } from "../common/errors";
 import { createValidator } from "../common/validate";
 import { ALL_ROLES, type Role } from "../security/roles";
 
@@ -14,6 +15,8 @@ export type UserRow = {
   email: string | null;
   phone: string | null;
   createdAt: Date;
+  hasAvatar: boolean;
+  avatarUpdatedAt: Date | null;
 };
 
 /** DTO de respuesta: lo que sale por la API. Nunca incluye passwordHash ni tokenVersion. */
@@ -27,6 +30,9 @@ export type UserResponse = {
   email: string | null;
   phone: string | null;
   createdAt: string;
+  /** Foto de perfil: la app la pide en GET /users/:id/avatar y usa `avatarUpdatedAt` como clave de caché. */
+  hasAvatar: boolean;
+  avatarUpdatedAt: string | null;
 };
 
 export const toUserResponse = (row: UserRow): UserResponse => ({
@@ -39,6 +45,8 @@ export const toUserResponse = (row: UserRow): UserResponse => ({
   email: row.email,
   phone: row.phone,
   createdAt: row.createdAt.toISOString(),
+  hasAvatar: row.hasAvatar,
+  avatarUpdatedAt: row.avatarUpdatedAt === null ? null : row.avatarUpdatedAt.toISOString(),
 });
 
 const USERNAME_RULE = { min: 3, max: 50, pattern: /^[a-z0-9._-]+$/i, patternMessage: "Solo letras, números, punto, guion y guion bajo" };
@@ -98,3 +106,40 @@ export const parseSignin = (body: unknown): SigninRequest => {
 };
 
 export type SigninResponse = { token: string; user: UserResponse };
+
+/* ---------- foto de perfil ---------- */
+
+export const AVATAR_MAX_BYTES = 1024 * 1024;
+export const AVATAR_TYPES: readonly string[] = ["image/jpeg", "image/png", "image/webp"];
+
+export type AvatarUploadRequest = { mime: string; data: Buffer };
+
+/** La foto llega como cuerpo binario (la app la reduce a 256×256); tipo en Content-Type. */
+export const parseAvatarUpload = (input: { body: unknown; contentType: string | undefined }): AvatarUploadRequest => {
+  const issues: { path: string; message: string }[] = [];
+  const mime = (input.contentType ?? "").split(";")[0]!.trim().toLowerCase();
+  if (!AVATAR_TYPES.includes(mime)) issues.push({ path: "file", message: "La foto debe ser JPEG, PNG o WebP" });
+  const data = Buffer.isBuffer(input.body) ? input.body : Buffer.alloc(0);
+  if (data.length === 0) issues.push({ path: "file", message: "La foto está vacía" });
+  if (data.length > AVATAR_MAX_BYTES) issues.push({ path: "file", message: "La foto pesa más de 1 MB" });
+  if (issues.length > 0) throw domainError(ErrorCodes.VALIDATION, issues);
+  return { mime, data };
+};
+
+/* ---------- directorio de personas (brief 2.5, punto 30) ---------- */
+
+/** Ficha de una persona para cualquier rol: rol, contacto y presencia (misma regla que el chat). `active` solo es false para el administrador. */
+export type DirectoryEntry = {
+  id: number;
+  firstName: string;
+  lastName: string;
+  username: string;
+  role: Role;
+  email: string | null;
+  phone: string | null;
+  hasAvatar: boolean;
+  avatarUpdatedAt: string | null;
+  online: boolean;
+  lastSeenAt: string | null;
+  active: boolean;
+};

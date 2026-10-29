@@ -19,10 +19,10 @@ export const createApp = () => {
   const jsonInvoice = express.json({ limit: "8mb" });
   // Las fotos de facturas y los documentos que se le adjuntan a Tita pesan más que cualquier otro cuerpo.
   const jsonChat = express.json({ limit: "24mb" });
-  // Los adjuntos del chat llegan como cuerpo binario (hasta 10 MB), no como JSON.
+  // Los adjuntos del chat, los documentos de la biblioteca y la foto de perfil llegan como cuerpo binario (hasta 10 MB), no como JSON.
   const rawAttachment = express.raw({ type: () => true, limit: "10mb" });
   app.use((req, res, next) =>
-    (req.method === "POST" && req.path.endsWith("/chat/attachments")
+    ((req.method === "POST" && (req.path.endsWith("/chat/attachments") || req.path.endsWith("/library/documents"))) || (req.method === "PUT" && req.path.endsWith("/users/me/avatar"))
       ? rawAttachment
       : req.path.endsWith("/ai/invoice")
         ? jsonInvoice
