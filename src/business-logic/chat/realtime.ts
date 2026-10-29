@@ -26,13 +26,19 @@ export type ChatEvent =
       mentionIds: number[];
     })
   | (Where & { kind: "update"; audience: ChatAudience; ids: number[] })
-  | { kind: "team"; audience: ChatAudience };
+  | { kind: "team"; audience: ChatAudience }
+  // Alarma personalizada que acaba de sonar (brief 2026, punto 12): solo a su dueño.
+  | { kind: "alarm"; audience: ChatAudience; alarmId: number; title: string; description: string | null; area: string | null; firedAt: string }
+  // Resumen diario de vencimientos por rol (punto 13): a cada persona el suyo.
+  | { kind: "due"; audience: ChatAudience; count: number; summary: string };
 
 /** Lo que recibe la app: la conversación se expresa desde su punto de vista (`peerId` null = canal general). */
 export type ChatClientEvent =
   | { type: "message"; id: number; peerId: number | null; threadRootId: number | null; authorId: number; authorName: string; preview: string; attachments: number; mentionsMe: boolean }
   | { type: "update"; ids: number[]; peerId: number | null }
-  | { type: "team" };
+  | { type: "team" }
+  | { type: "alarm"; alarmId: number; title: string; description: string | null; area: string | null; firedAt: string }
+  | { type: "due"; count: number; summary: string };
 
 type Subscriber = { userId: number; send: (event: ChatClientEvent) => void; close: () => void };
 
@@ -41,7 +47,8 @@ const subscribers = new Set<Subscriber>();
 
 const peerOf = (where: Where, userId: number): number | null => (where.general ? null : where.pair[0] === userId ? where.pair[1] : where.pair[0]);
 
-const toClient = (event: ChatEvent, userId: number): ChatClientEvent => {
+/** Vista de un evento desde la cuenta que lo recibe (exportada para probarla sin conexiones abiertas). */
+export const toClient = (event: ChatEvent, userId: number): ChatClientEvent => {
   switch (event.kind) {
     case "message":
       return {
@@ -59,6 +66,10 @@ const toClient = (event: ChatEvent, userId: number): ChatClientEvent => {
       return { type: "update", ids: event.ids, peerId: peerOf(event, userId) };
     case "team":
       return { type: "team" };
+    case "alarm":
+      return { type: "alarm", alarmId: event.alarmId, title: event.title, description: event.description, area: event.area, firedAt: event.firedAt };
+    case "due":
+      return { type: "due", count: event.count, summary: event.summary };
   }
 };
 

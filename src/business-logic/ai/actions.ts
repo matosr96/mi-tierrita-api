@@ -11,6 +11,7 @@ import {
   parseCreateSale,
   parseCreateScenario,
   parseCreateSupplier,
+  parseCreateAlarm,
   parseCreateChatMessage,
   parseUpdateContactMessage,
   parseUpdateCustomer,
@@ -445,6 +446,45 @@ export const ACTION_TOOLS: Record<string, ToolDef> = {
         to = `Privado a ${rows[0].name}`;
       }
       return propose(ctx, { type: "action", kind: "chat", title: "Mensaje al equipo", lines: [to, `«${body["body"]}»`], warnings: [], confirmLabel: "Enviar mensaje", request: { method: "POST", path: "/chat/messages", body } });
+    },
+  },
+
+  /* ------------------------------------------------------------------ alarmas */
+  crear_alarma: {
+    roles: ALL,
+    label: "Alarma",
+    spec: {
+      name: "crear_alarma",
+      description:
+        "Prepara una alarma personal (recordatorio) para quien habla: título, hora HH:MM de Colombia, repetición ONCE (una vez, con date YYYY-MM-DD), DAILY (todos los días), WEEKDAYS (lunes a viernes) o WEEKLY (con weekdays 0=domingo…6=sábado), y el área del sistema a la que debe llevar el aviso. «Mañana a las 8» = ONCE con la fecha de mañana.",
+      input_schema: obj(
+        {
+          title: { type: "string" },
+          description: { type: "string" },
+          timeOfDay: { type: "string", description: "HH:MM en 24 horas" },
+          repeat: { type: "string", enum: ["ONCE", "DAILY", "WEEKDAYS", "WEEKLY"] },
+          weekdays: { type: "array", items: { type: "integer", minimum: 0, maximum: 6 } },
+          date: { type: "string", description: "YYYY-MM-DD, solo para ONCE" },
+          area: { type: "string", enum: ["inicio", "inventario", "lotes", "ventas", "clientes", "proveedores", "finanzas", "reportes", "chat", "alarmas"] },
+        },
+        ["title", "timeOfDay", "repeat"],
+      ),
+    },
+    run: async (i, ctx) => {
+      const weekdays = Array.isArray(i["weekdays"]) ? i["weekdays"].map(int).filter((d): d is number => d !== undefined) : undefined;
+      const body = clean({ title: str(i["title"]), description: str(i["description"]), timeOfDay: str(i["timeOfDay"]), repeat: str(i["repeat"]), weekdays, date: isoDate(i["date"]), area: str(i["area"]) });
+      const v = validate(parseCreateAlarm, body);
+      if (!v.ok) return v.error;
+      const repeatLabel: Record<string, string> = { ONCE: `una sola vez, el ${String(body["date"])}`, DAILY: "todos los días", WEEKDAYS: "de lunes a viernes", WEEKLY: `cada semana (días ${(weekdays ?? []).join(", ")})` };
+      return propose(ctx, {
+        type: "action",
+        kind: "create_alarm",
+        title: `Alarma: ${String(body["title"])}`,
+        lines: [`A las ${String(body["timeOfDay"])} · ${repeatLabel[String(body["repeat"])] ?? ""}`, `Área: ${String(body["area"] ?? "alarmas")}`, ...(body["description"] !== undefined ? [String(body["description"])] : [])],
+        warnings: [],
+        confirmLabel: "Crear alarma",
+        request: { method: "POST", path: "/alarms", body },
+      });
     },
   },
 
