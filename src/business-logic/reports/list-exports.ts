@@ -2,7 +2,7 @@ import { toPageResponse, type PageRequest, type PageResponse } from "../../commo
 import { db } from "../../data-sources/index";
 import { toReportExportResponse, type ReportExportResponse, type ReportExportRow } from "../../models/index";
 
-export const EXPORT_COLUMNS = `e.id, e.user_id AS "userId", u.username, e.report, e.format, e.description, e.created_at AS "createdAt"`;
+export const EXPORT_COLUMNS = `e.id, e.user_id AS "userId", u.username, e.report, e.format, e.description, e.folio, e.hash, e.filters, e.summary, e.created_at AS "createdAt"`;
 
 /** Historial de reportes generados, del más reciente al más antiguo. `userId` limita a los de una persona. */
 export const listExports = async (page: PageRequest, filter: { userId?: number | undefined }): Promise<PageResponse<ReportExportResponse>> => {

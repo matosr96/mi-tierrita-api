@@ -3,8 +3,12 @@ import { db } from "../../data-sources/index";
 export const SALES_GROUP_BY = ["day", "product"] as const;
 export type SalesGroupBy = (typeof SALES_GROUP_BY)[number];
 
-export type SalesReportByDayRow = { date: string; salesCount: number; units: number; total: number };
-export type SalesReportByProductRow = { productId: number; productName: string; sku: string; salesCount: number; units: number; total: number };
+/** Trazabilidad (brief 2.4, punto 25): hasta `MAX_SOURCE_IDS` ids de las ventas que componen la fila y cuántas son en total. */
+export type RowSources = { sourceIds: number[]; sourceCount: number };
+export type SalesReportByDayRow = RowSources & { date: string; salesCount: number; units: number; total: number; cashTotal: number; creditTotal: number };
+export type SalesReportByProductRow = RowSources & { productId: number; productName: string; sku: string; salesCount: number; units: number; total: number };
+
+export const MAX_SOURCE_IDS = 20;
 
 export type SalesReport = {
   from: string;
@@ -44,7 +48,11 @@ export const salesReport = async (from: string, to: string, groupBy: SalesGroupB
             `SELECT to_char(s.created_at::date, 'YYYY-MM-DD') AS date,
                     count(DISTINCT s.id)::int AS "salesCount",
                     sum(l.quantity)::int AS units,
-                    sum(l.line_total) AS total
+                    sum(l.line_total) AS total,
+                    COALESCE(sum(l.line_total) FILTER (WHERE s.payment_type = 'CASH'), 0) AS "cashTotal",
+                    COALESCE(sum(l.line_total) FILTER (WHERE s.payment_type = 'CREDIT'), 0) AS "creditTotal",
+                    (array_agg(DISTINCT s.id::int))[1:${MAX_SOURCE_IDS}] AS "sourceIds",
+                    count(DISTINCT s.id)::int AS "sourceCount"
              FROM sales s JOIN sale_lines l ON l.sale_id = s.id
              WHERE ${period}
              GROUP BY s.created_at::date ORDER BY s.created_at::date`,
@@ -56,7 +64,9 @@ export const salesReport = async (from: string, to: string, groupBy: SalesGroupB
             `SELECT p.id AS "productId", p.name AS "productName", p.sku,
                     count(DISTINCT s.id)::int AS "salesCount",
                     sum(l.quantity)::int AS units,
-                    sum(l.line_total) AS total
+                    sum(l.line_total) AS total,
+                    (array_agg(DISTINCT s.id::int))[1:${MAX_SOURCE_IDS}] AS "sourceIds",
+                    count(DISTINCT s.id)::int AS "sourceCount"
              FROM sales s JOIN sale_lines l ON l.sale_id = s.id JOIN products p ON p.id = l.product_id
              WHERE ${period}
              GROUP BY p.id, p.name, p.sku ORDER BY total DESC, p.name`,

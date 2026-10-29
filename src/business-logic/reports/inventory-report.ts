@@ -1,7 +1,8 @@
 import { addDaysIso, todayIso } from "../../common/index";
 import { db } from "../../data-sources/index";
 
-export type InventoryCategoryRow = { categoryId: number; categoryName: string; products: number; units: number; costValue: number; saleValue: number };
+/** `productIds`: hasta 20 ids de los productos de la categoría (trazabilidad, brief 2.4 punto 25); `products` es el total. */
+export type InventoryCategoryRow = { categoryId: number; categoryName: string; products: number; units: number; costValue: number; saleValue: number; productIds: number[] };
 
 export type InventoryReport = {
   asOf: string;
@@ -49,7 +50,8 @@ export const inventoryReport = async (expiringDays: number): Promise<InventoryRe
               count(p.id)::int AS products,
               COALESCE(sum(p.stock), 0)::int AS units,
               COALESCE((SELECT sum(b.quantity_remaining * b.unit_cost) FROM product_batches b JOIN products pp ON pp.id = b.product_id WHERE pp.category_id = c.id), 0) AS "costValue",
-              COALESCE(sum(p.stock * p.sale_price), 0) AS "saleValue"
+              COALESCE(sum(p.stock * p.sale_price), 0) AS "saleValue",
+              COALESCE((array_agg(p.id::int ORDER BY p.id) FILTER (WHERE p.id IS NOT NULL))[1:20], '{}'::int[]) AS "productIds"
        FROM categories c LEFT JOIN products p ON p.category_id = c.id
        GROUP BY c.id, c.name ORDER BY c.name`,
     ),

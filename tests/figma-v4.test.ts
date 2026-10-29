@@ -38,7 +38,7 @@ test("parseCreateContactMessage marca como trampa cuando llega el campo oculto",
 
 test("estados y exportaciones solo aceptan los valores conocidos", () => {
   assert.deepEqual(paths400(() => parseUpdateContactMessage({ status: "BORRADO" })), ["status"]);
-  assert.deepEqual(parseCreateReportExport({ report: "sales", format: "pdf", description: "Ventas" }), { report: "sales", format: "pdf", description: "Ventas" });
+  assert.deepEqual(parseCreateReportExport({ report: "sales", format: "pdf", description: "Ventas" }), { report: "sales", format: "pdf", description: "Ventas", filters: {}, summary: {} });
   assert.deepEqual(paths400(() => parseCreateReportExport({ report: "ventas", format: "doc", description: "" })), ["report", "format", "description"]);
   assert.deepEqual(paths400(() => parseCreateChatMessage({ body: "   " })), ["body"]);
 });
