@@ -4,14 +4,17 @@ import { requireAuth } from "../../security/index";
 import { parseUploadChatAttachment } from "../../models/index";
 import { getChatAttachment, uploadChatAttachment } from "../../business-logic/chat/index";
 
-/** POST /api/v1/chat/attachments — autenticado. Cuerpo binario (hasta 10 MB), tipo en Content-Type y nombre en X-File-Name. */
+/**
+ * POST /api/v1/chat/attachments — autenticado. Cuerpo binario (hasta 10 MB), tipo en Content-Type, nombre en
+ * X-File-Name y, en notas de voz, la duración en milisegundos en X-Duration-Ms.
+ */
 export const uploadChatAttachmentController: RequestHandler = async (req, res) => {
-  const file = parseUploadChatAttachment({ body: req.body, contentType: req.get("content-type"), fileName: req.get("x-file-name") });
+  const file = parseUploadChatAttachment({ body: req.body, contentType: req.get("content-type"), fileName: req.get("x-file-name"), durationMs: req.get("x-duration-ms") });
   res.status(201).json(await uploadChatAttachment(requireAuth(req).userId, file));
 };
 
-/** Solo las imágenes se muestran en línea; lo demás se descarga (nunca se interpreta en el navegador). */
-const INLINE = /^image\/(jpeg|png|webp|gif)$/;
+/** Solo las fotos y las notas de voz se muestran en línea; lo demás se descarga (nunca se interpreta en el navegador). */
+const INLINE = /^(image\/(jpeg|png|webp|gif)|audio\/(webm|ogg|mp4|mpeg))$/;
 
 /** GET /api/v1/chat/attachments/:id — quien puede ver el mensaje que lo lleva. */
 export const getChatAttachmentController: RequestHandler = async (req, res) => {

@@ -1,10 +1,22 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { isDomainError } from "../src/common/errors";
-import { deliveryStatus, extractMentions, parseCreateChatMessage, parseEditChatMessage, parseIdList, parseMarkChatRead, parseUploadChatAttachment } from "../src/models/chat";
+import {
+  deliveryStatus,
+  extractLinks,
+  extractMentions,
+  parseChatMediaKind,
+  parseCreateChatMessage,
+  parseEditChatMessage,
+  parseIdList,
+  parseMarkChatRead,
+  parseSearchDay,
+  parseUploadChatAttachment,
+} from "../src/models/chat";
 import { canQuote, canSee, peerFor, sameConversation } from "../src/business-logic/chat/shared";
 import { canPin } from "../src/business-logic/chat/pin-message";
 import { canDelete } from "../src/business-logic/chat/delete-message";
+import { canMarkPlayed } from "../src/business-logic/chat/mark-played";
 
 const paths400 = (fn: () => unknown): string[] => {
   try {
@@ -50,6 +62,23 @@ test("estado de entrega: visto solo cuando todos leyeron; entregado cuando a tod
   assert.equal(deliveryStatus(0, 0, 0), "sent");
 });
 
+test("nota de voz: reproducido solo cuando todos la escucharon, y nunca en mensajes sin audio", () => {
+  assert.equal(deliveryStatus(3, 3, 3, 3, true), "played");
+  assert.equal(deliveryStatus(3, 3, 3, 2, true), "read");
+  assert.equal(deliveryStatus(1, 1, 1, 1, true), "played");
+  assert.equal(deliveryStatus(3, 3, 3, 3, false), "read", "sin audio no hay estado reproducido");
+  assert.equal(deliveryStatus(0, 0, 0, 0, true), "sent");
+});
+
+test("marcar como reproducido: solo un mensaje ajeno, vigente y con nota de voz", () => {
+  const audio = [{ mime: "audio/webm" }];
+  assert.ok(canMarkPlayed(2, { userId: 1, deletedAt: null }, audio));
+  assert.ok(!canMarkPlayed(1, { userId: 1, deletedAt: null }, audio), "propio");
+  assert.ok(!canMarkPlayed(2, { userId: 1, deletedAt: null }, [{ mime: "image/png" }]), "sin audio");
+  assert.ok(!canMarkPlayed(2, { userId: 1, deletedAt: null }, []), "sin adjuntos");
+  assert.ok(!canMarkPlayed(2, { userId: 1, deletedAt: new Date() }, audio), "eliminado");
+});
+
 test("privacidad: un privado solo lo ven sus dos participantes", () => {
   const dm = { userId: 1, recipientId: 2 };
   assert.ok(canSee(1, dm) && canSee(2, dm));
@@ -85,6 +114,43 @@ test("adjuntos: solo tipos permitidos, con nombre limpio y tamaño acotado", () 
   assert.deepEqual(paths400(() => parseUploadChatAttachment({ body: Buffer.from("<h1>"), contentType: "text/html", fileName: "a.html" })), ["file"]);
   assert.deepEqual(paths400(() => parseUploadChatAttachment({ body: Buffer.alloc(0), contentType: "image/png", fileName: "" })), ["name", "file"]);
   assert.deepEqual(paths400(() => parseUploadChatAttachment({ body: Buffer.alloc(10 * 1024 * 1024 + 1), contentType: "application/pdf", fileName: "x.pdf" })), ["file"]);
+});
+
+test("adjuntos de audio: se aceptan los tipos que graba el navegador y la duración en X-Duration-Ms", () => {
+  const voice = parseUploadChatAttachment({ body: Buffer.from("opus"), contentType: "audio/webm;codecs=opus", fileName: "Nota%20de%20voz.webm", durationMs: "4200" });
+  assert.equal(voice.mime, "audio/webm");
+  assert.equal(voice.name, "Nota de voz.webm");
+  assert.equal(voice.durationMs, 4200);
+  for (const mime of ["audio/ogg", "audio/mp4", "audio/mpeg"]) assert.equal(parseUploadChatAttachment({ body: Buffer.from("x"), contentType: mime, fileName: "a" }).mime, mime);
+  assert.equal(parseUploadChatAttachment({ body: Buffer.from("x"), contentType: "audio/mp4", fileName: "a.m4a" }).durationMs, null, "la duración es opcional");
+  assert.equal(parseUploadChatAttachment({ body: Buffer.from("x"), contentType: "application/pdf", fileName: "a.pdf", durationMs: "4200" }).durationMs, null, "solo cuenta en audio");
+  assert.deepEqual(paths400(() => parseUploadChatAttachment({ body: Buffer.from("x"), contentType: "audio/webm", fileName: "a.webm", durationMs: "abc" })), ["durationMs"]);
+  assert.deepEqual(paths400(() => parseUploadChatAttachment({ body: Buffer.from("x"), contentType: "audio/webm", fileName: "a.webm", durationMs: "0" })), ["durationMs"]);
+  assert.deepEqual(paths400(() => parseUploadChatAttachment({ body: Buffer.from("x"), contentType: "audio/wav", fileName: "a.wav" })), ["file"], "WAV no está en la lista");
+});
+
+test("búsqueda por día: fecha YYYY-MM-DD válida u omitida", () => {
+  assert.equal(parseSearchDay("2026-10-29"), "2026-10-29");
+  assert.equal(parseSearchDay(undefined), undefined);
+  assert.equal(parseSearchDay(""), undefined);
+  assert.deepEqual(paths400(() => parseSearchDay("29/10/2026")), ["day"]);
+  assert.deepEqual(paths400(() => parseSearchDay("2026-13-40")), ["day"]);
+  assert.deepEqual(paths400(() => parseSearchDay(["2026-10-29"])), ["day"]);
+});
+
+test("extractLinks saca las direcciones del texto sin la puntuación que las cierra y sin repetir", () => {
+  assert.deepEqual(extractLinks("Miren https://mitierrita.co/catalogo, y también http://ejemplo.com/a?b=1&c=2."), ["https://mitierrita.co/catalogo", "http://ejemplo.com/a?b=1&c=2"]);
+  assert.deepEqual(extractLinks("(ver https://es.wikipedia.org/wiki/Huevo_(alimento))"), ["https://es.wikipedia.org/wiki/Huevo_(alimento)"]);
+  assert.deepEqual(extractLinks("https://a.co/x https://a.co/x HTTPS://A.co/y"), ["https://a.co/x", "HTTPS://A.co/y"]);
+  assert.deepEqual(extractLinks("sin enlaces: ventas@finca.co y www.sinprotocolo.com"), []);
+  assert.deepEqual(extractLinks(""), []);
+});
+
+test("contenido de la conversación: solo fotos, archivos, audios o enlaces", () => {
+  assert.equal(parseChatMediaKind("image"), "image");
+  assert.equal(parseChatMediaKind("link"), "link");
+  assert.deepEqual(paths400(() => parseChatMediaKind("video")), ["kind"]);
+  assert.deepEqual(paths400(() => parseChatMediaKind(undefined)), ["kind"]);
 });
 
 test("marcar como leído y listas de ids", () => {

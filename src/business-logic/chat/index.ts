@@ -12,3 +12,6 @@ export * from "./message-receipts";
 export * from "./attachments";
 export * from "./edit-message";
 export * from "./delete-message";
+export * from "./mark-played";
+export * from "./media";
+export * from "./tita-reply";

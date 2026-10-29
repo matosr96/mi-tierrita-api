@@ -1,4 +1,4 @@
-import { createValidator } from "../common/validate";
+import { createValidator, isIsoDate } from "../common/validate";
 import { ErrorCodes, domainError } from "../common/errors";
 import type { Role } from "../security/roles";
 
@@ -7,7 +7,8 @@ import type { Role } from "../security/roles";
 /** Persona citada en un mensaje (autor de una cita, mencionada o participante de un hilo). */
 export type ChatPerson = { id: number; firstName: string; lastName: string };
 export type ChatMention = ChatPerson & { username: string };
-export type ChatAttachmentInfo = { id: number; name: string; mime: string; size: number };
+/** `durationMs`: solo en notas de voz (lo manda la app al subirlas). */
+export type ChatAttachmentInfo = { id: number; name: string; mime: string; size: number; durationMs: number | null };
 
 /** Mensaje citado. `privateReply`: la cita viene del canal general y la respuesta es privada. */
 export type ChatQuote = {
@@ -26,10 +27,11 @@ export type ChatThreadSummary = { replies: number; unread: number; lastReplyAt: 
 
 /**
  * Estado de entrega de un mensaje propio: enviado (guardado en el servidor), entregado (llegó a la app de todos los
- * destinatarios activos) y visto (todos lo leyeron). Los conteos permiten "visto por 2 de 3".
+ * destinatarios activos), visto (todos lo leyeron) y, solo en mensajes con nota de voz, reproducido (todos la
+ * escucharon). Los conteos permiten "visto por 2 de 3" o "reproducido por 1 de 3".
  */
-export type ChatDeliveryStatus = "sent" | "delivered" | "read";
-export type ChatReceiptsSummary = { status: ChatDeliveryStatus; total: number; delivered: number; read: number };
+export type ChatDeliveryStatus = "sent" | "delivered" | "read" | "played";
+export type ChatReceiptsSummary = { status: ChatDeliveryStatus; total: number; delivered: number; read: number; played: number };
 
 export type ChatMessageRow = {
   id: number;
@@ -64,10 +66,14 @@ export type ChatMessageRow = {
   receiptsTotal: number | null;
   receiptsDelivered: number | null;
   receiptsRead: number | null;
+  receiptsPlayed: number | null;
   unreadByMe: boolean;
   mentionsMe: boolean;
   mentions: ChatMention[] | null;
   attachments: ChatAttachmentInfo[] | null;
+  tita: boolean;
+  titaProposals: unknown[] | null;
+  titaActions: Record<string, { status: string; note?: string }> | null;
 };
 
 export type ChatMessageResponse = {
@@ -96,12 +102,22 @@ export type ChatMessageResponse = {
   /** Mensaje de otra persona que quien consulta aún no ha leído. */
   unread: boolean;
   mentionsMe: boolean;
+  /** Respuesta de Tita a una mención (@Tita), a nombre de `userId`, con sus tarjetas y cómo quedaron. */
+  tita: boolean;
+  titaProposals: unknown[] | null;
+  titaActions: Record<string, { status: string; note?: string }> | null;
 };
 
 const QUOTE_MAX = 160;
 
-export const deliveryStatus = (total: number, delivered: number, read: number): ChatDeliveryStatus =>
-  total > 0 && read >= total ? "read" : total > 0 && delivered >= total ? "delivered" : "sent";
+/** Con `audio` (el mensaje lleva una nota de voz) el estado llega hasta "played" cuando todos la reprodujeron. */
+export const deliveryStatus = (total: number, delivered: number, read: number, played = 0, audio = false): ChatDeliveryStatus =>
+  total > 0 && audio && played >= total ? "played" : total > 0 && read >= total ? "read" : total > 0 && delivered >= total ? "delivered" : "sent";
+
+/** Tipos de adjunto que son notas de voz (lo que graba el navegador: WebM/Opus u Ogg/Opus en Chrome y Firefox, MP4/AAC en Safari). */
+export const CHAT_AUDIO_TYPES: readonly string[] = ["audio/webm", "audio/ogg", "audio/mp4", "audio/mpeg"];
+export const isAudioMime = (mime: string): boolean => CHAT_AUDIO_TYPES.includes(mime.split(";")[0]!.trim().toLowerCase());
+export const hasAudio = (attachments: readonly Pick<ChatAttachmentInfo, "mime">[] | null | undefined): boolean => (attachments ?? []).some((a) => isAudioMime(a.mime));
 
 export const toChatMessageResponse = (row: ChatMessageRow): ChatMessageResponse => ({
   id: row.id,
@@ -136,14 +152,18 @@ export const toChatMessageResponse = (row: ChatMessageRow): ChatMessageResponse 
   pinned: row.pinnedAt === null ? null : { at: row.pinnedAt.toISOString(), by: { id: row.pinnedById!, name: row.pinnedByName ?? "" } },
   mentions: row.mentions ?? [],
   attachments: row.attachments ?? [],
+  tita: row.tita,
+  titaProposals: row.tita ? (row.titaProposals ?? []) : null,
+  titaActions: row.tita ? (row.titaActions ?? {}) : null,
   receipts:
     row.receiptsTotal === null
       ? null
       : {
-          status: deliveryStatus(row.receiptsTotal, row.receiptsDelivered ?? 0, row.receiptsRead ?? 0),
+          status: deliveryStatus(row.receiptsTotal, row.receiptsDelivered ?? 0, row.receiptsRead ?? 0, row.receiptsPlayed ?? 0, hasAudio(row.attachments)),
           total: row.receiptsTotal,
           delivered: row.receiptsDelivered ?? 0,
           read: row.receiptsRead ?? 0,
+          played: row.receiptsPlayed ?? 0,
         },
   unread: row.unreadByMe,
   mentionsMe: row.mentionsMe,
@@ -229,12 +249,13 @@ export const parseIdList = (raw: unknown, max = 100): number[] => {
 
 export const CHAT_ATTACHMENT_MAX_BYTES = 10 * 1024 * 1024;
 
-/** Tipos permitidos: fotos, PDF, documentos de oficina, texto y CSV. Nada ejecutable ni HTML. */
+/** Tipos permitidos: fotos, notas de voz, PDF, documentos de oficina, texto y CSV. Nada ejecutable ni HTML. */
 export const CHAT_ATTACHMENT_TYPES: readonly string[] = [
   "image/jpeg",
   "image/png",
   "image/webp",
   "image/gif",
+  ...CHAT_AUDIO_TYPES,
   "application/pdf",
   "text/plain",
   "text/csv",
@@ -244,13 +265,25 @@ export const CHAT_ATTACHMENT_TYPES: readonly string[] = [
   "application/msword",
 ];
 
-export type UploadChatAttachmentRequest = { name: string; mime: string; data: Buffer };
+export type UploadChatAttachmentRequest = { name: string; mime: string; data: Buffer; durationMs: number | null };
 
-/** El archivo llega como cuerpo binario; el nombre en `X-File-Name` (codificado con encodeURIComponent). */
-export const parseUploadChatAttachment = (input: { body: unknown; contentType: string | undefined; fileName: string | undefined }): UploadChatAttachmentRequest => {
+/** Tope de una nota de voz: una hora (en milisegundos). */
+export const CHAT_AUDIO_MAX_MS = 60 * 60 * 1000;
+
+/**
+ * El archivo llega como cuerpo binario; el nombre en `X-File-Name` (codificado con encodeURIComponent) y, en notas de
+ * voz, la duración en milisegundos en `X-Duration-Ms` (opcional; se ignora en los demás tipos).
+ */
+export const parseUploadChatAttachment = (input: { body: unknown; contentType: string | undefined; fileName: string | undefined; durationMs?: string | undefined }): UploadChatAttachmentRequest => {
   const issues: { path: string; message: string }[] = [];
   const mime = (input.contentType ?? "").split(";")[0]!.trim().toLowerCase();
-  if (!CHAT_ATTACHMENT_TYPES.includes(mime)) issues.push({ path: "file", message: "Tipo de archivo no permitido (fotos, PDF, Excel, Word, CSV o texto)" });
+  if (!CHAT_ATTACHMENT_TYPES.includes(mime)) issues.push({ path: "file", message: "Tipo de archivo no permitido (fotos, notas de voz, PDF, Excel, Word, CSV o texto)" });
+  let durationMs: number | null = null;
+  if (isAudioMime(mime) && input.durationMs !== undefined && input.durationMs.trim() !== "") {
+    const n = Number(input.durationMs);
+    if (!Number.isInteger(n) || n <= 0 || n > CHAT_AUDIO_MAX_MS) issues.push({ path: "durationMs", message: "La duración debe ser un entero de milisegundos (máximo una hora)" });
+    else durationMs = n;
+  }
   let name = "";
   try {
     name = decodeURIComponent(input.fileName ?? "").trim();
@@ -264,7 +297,7 @@ export const parseUploadChatAttachment = (input: { body: unknown; contentType: s
   if (data.length === 0) issues.push({ path: "file", message: "El archivo está vacío" });
   if (data.length > CHAT_ATTACHMENT_MAX_BYTES) issues.push({ path: "file", message: "Máximo 10 MB por archivo" });
   if (issues.length > 0) throw domainError(ErrorCodes.VALIDATION, issues);
-  return { name, mime, data };
+  return { name, mime, data, durationMs };
 };
 
 /* ---------- menciones ---------- */
@@ -280,7 +313,47 @@ export const extractMentions = (body: string): { usernames: string[]; everyone: 
   return { usernames: [...found].filter((u) => !EVERYONE_MENTIONS.includes(u)), everyone };
 };
 
+/* ---------- enlaces ---------- */
+
+const LINK_MAX = 20;
+
+/** Direcciones web (http o https) escritas en el cuerpo de un mensaje, sin repetir y sin la puntuación final. */
+export const extractLinks = (body: string): string[] => {
+  const found = new Set<string>();
+  for (const match of body.matchAll(/https?:\/\/[^\s<>"'`]+/gi)) {
+    let url = match[0]!;
+    // Quita la puntuación que suele cerrar una frase pegada al enlace, y un paréntesis de cierre sin su apertura.
+    while (/[.,;:!?»”)\]]$/.test(url)) {
+      if (url.endsWith(")") && (url.match(/\(/g) ?? []).length >= (url.match(/\)/g) ?? []).length) break;
+      url = url.slice(0, -1);
+    }
+    if (url.length > 8 && url.length <= 2000) found.add(url);
+    if (found.size >= LINK_MAX) break;
+  }
+  return [...found];
+};
+
 /* ---------- equipo, acuses y búsqueda ---------- */
+
+/** Día de la búsqueda (`?day=YYYY-MM-DD`): opcional; si viene, debe ser una fecha válida. */
+export const parseSearchDay = (raw: unknown): string | undefined => {
+  if (raw === undefined || raw === null || raw === "") return undefined;
+  if (!isIsoDate(raw)) throw domainError(ErrorCodes.VALIDATION, [{ path: "day", message: "Formato esperado YYYY-MM-DD" }]);
+  return raw;
+};
+
+/** Qué listar en `GET /chat/media`: fotos, archivos (lo que no es foto ni audio), notas de voz o enlaces del texto. */
+export const CHAT_MEDIA_KINDS = ["image", "file", "audio", "link"] as const;
+export type ChatMediaKind = (typeof CHAT_MEDIA_KINDS)[number];
+export const parseChatMediaKind = (raw: unknown): ChatMediaKind => {
+  if (typeof raw === "string" && (CHAT_MEDIA_KINDS as readonly string[]).includes(raw)) return raw as ChatMediaKind;
+  throw domainError(ErrorCodes.VALIDATION, [{ path: "kind", message: `Debe ser uno de: ${CHAT_MEDIA_KINDS.join(", ")}` }]);
+};
+
+/** Elemento de `GET /chat/media`: un adjunto o un enlace, con el mensaje que lo lleva y quién lo envió. */
+export type ChatMediaItem =
+  | { kind: "image" | "file" | "audio"; messageId: number; createdAt: string; author: ChatPerson; attachment: ChatAttachmentInfo }
+  | { kind: "link"; messageId: number; createdAt: string; author: ChatPerson; url: string };
 
 export type ChatPreview = { body: string; createdAt: string; mine: boolean } | null;
 export type ChatMemberResponse = {
@@ -303,8 +376,12 @@ export type ChatTeamResponse = {
   unreadTotal: number;
 };
 
-export type ChatReceiptEntry = { user: ChatPerson & { role: Role; active: boolean }; deliveredAt: string | null; readAt: string | null };
-export type ChatReceiptsResponse = { messageId: number; status: ChatDeliveryStatus; read: ChatReceiptEntry[]; delivered: ChatReceiptEntry[]; pending: ChatReceiptEntry[] };
+export type ChatReceiptEntry = { user: ChatPerson & { role: Role; active: boolean }; deliveredAt: string | null; readAt: string | null; playedAt: string | null };
+/**
+ * `read`: lo leyeron; `delivered`: les llegó y no lo han leído; `pending`: aún no les llega (las tres se excluyen
+ * entre sí). `played`: reprodujeron la nota de voz (subconjunto de `read`); `audio` dice si el mensaje lleva una.
+ */
+export type ChatReceiptsResponse = { messageId: number; status: ChatDeliveryStatus; audio: boolean; read: ChatReceiptEntry[]; delivered: ChatReceiptEntry[]; pending: ChatReceiptEntry[]; played: ChatReceiptEntry[] };
 
 /** Página de mensajes: `hasMoreBefore`/`hasMoreAfter` permiten seguir cargando el historial en cada sentido. */
 export type ChatPageResponse = { items: ChatMessageResponse[]; hasMoreBefore: boolean; hasMoreAfter: boolean; root?: ChatMessageResponse };

@@ -12,8 +12,8 @@ export const uploadChatAttachment = async (userId: number, file: UploadChatAttac
   const { rows: pending } = await db.query<{ n: number }>(`SELECT count(*)::int AS n FROM chat_attachments WHERE user_id = $1 AND message_id IS NULL`, [userId]);
   if ((pending[0]?.n ?? 0) >= PENDING_MAX) throw domainError(ErrorCodes.VALIDATION, [{ path: "file", message: "Tiene demasiados archivos sin enviar; envíe o quite alguno" }]);
   const { rows } = await db.query<ChatAttachmentInfo>(
-    `INSERT INTO chat_attachments (user_id, name, mime, size, data) VALUES ($1, $2, $3, $4, $5) RETURNING id, name, mime, size`,
-    [userId, file.name, file.mime, file.data.length, file.data],
+    `INSERT INTO chat_attachments (user_id, name, mime, size, data, duration_ms) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, name, mime, size, duration_ms AS "durationMs"`,
+    [userId, file.name, file.mime, file.data.length, file.data, file.durationMs],
   );
   return rows[0]!;
 };
@@ -24,7 +24,7 @@ export const uploadChatAttachment = async (userId: number, file: UploadChatAttac
  */
 export const getChatAttachment = async (userId: number, id: number): Promise<ChatAttachmentInfo & { data: Buffer }> => {
   const { rows } = await db.query<ChatAttachmentInfo & { data: Buffer; ownerId: number; messageUserId: number | null; recipientId: number | null; messageId: number | null }>(
-    `SELECT a.id, a.name, a.mime, a.size, a.data, a.user_id AS "ownerId", a.message_id AS "messageId",
+    `SELECT a.id, a.name, a.mime, a.size, a.duration_ms AS "durationMs", a.data, a.user_id AS "ownerId", a.message_id AS "messageId",
             m.user_id AS "messageUserId", m.recipient_id AS "recipientId"
      FROM chat_attachments a LEFT JOIN chat_messages m ON m.id = a.message_id
      WHERE a.id = $1`,
@@ -33,5 +33,5 @@ export const getChatAttachment = async (userId: number, id: number): Promise<Cha
   const a = rows[0];
   const allowed = a !== undefined && (a.messageId === null ? a.ownerId === userId : canSee(userId, { userId: a.messageUserId!, recipientId: a.recipientId }));
   if (!allowed) throw domainError(ErrorCodes.CHAT_MESSAGE_NOT_FOUND);
-  return { id: a.id, name: a.name, mime: a.mime, size: a.size, data: a.data };
+  return { id: a.id, name: a.name, mime: a.mime, size: a.size, durationMs: a.durationMs, data: a.data };
 };

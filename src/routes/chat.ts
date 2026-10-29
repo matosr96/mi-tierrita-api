@@ -9,13 +9,16 @@ import {
   deleteChatMessageController,
   editChatMessageController,
   getChatAttachmentController,
+  listChatMediaController,
   listChatMessagesController,
   listChatPinsController,
+  markChatPlayedController,
   markChatReadController,
   pinChatMessageController,
   searchChatMessagesController,
   unpinChatMessageController,
   uploadChatAttachmentController,
+  setChatTitaActionController,
 } from "../controllers/chat/index";
 
 /**
@@ -28,6 +31,7 @@ chatRouter.get("/stream", chatStreamController);
 chatRouter.get("/team", chatTeamController);
 chatRouter.get("/search", searchChatMessagesController);
 chatRouter.get("/pins", listChatPinsController);
+chatRouter.get("/media", listChatMediaController);
 chatRouter.post("/read", markChatReadController);
 chatRouter.post("/attachments", uploadChatAttachmentController);
 chatRouter.get("/attachments/:id", getChatAttachmentController);
@@ -37,5 +41,7 @@ chatRouter.post("/messages", createChatMessageController);
 chatRouter.patch("/messages/:id", editChatMessageController);
 chatRouter.delete("/messages/:id", deleteChatMessageController);
 chatRouter.get("/messages/:id/receipts", chatMessageReceiptsController);
+chatRouter.post("/messages/:id/played", markChatPlayedController);
+chatRouter.patch("/messages/:id/tita-actions", setChatTitaActionController);
 chatRouter.put("/messages/:id/pin", pinChatMessageController);
 chatRouter.delete("/messages/:id/pin", unpinChatMessageController);

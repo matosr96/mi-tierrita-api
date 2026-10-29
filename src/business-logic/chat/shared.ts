@@ -9,17 +9,18 @@ import { toChatMessageResponse, type ChatMessageResponse, type ChatMessageRow } 
 export const CHAT_COLUMNS = `
   m.id, m.client_id AS "clientId", m.user_id AS "userId", u.username, u.first_name AS "firstName", u.last_name AS "lastName",
   r.name AS role, m.recipient_id AS "recipientId", m.body, m.created_at AS "createdAt", m.thread_root_id AS "threadRootId",
+  m.tita, m.tita_proposals AS "titaProposals", m.tita_actions AS "titaActions",
   m.pinned_at AS "pinnedAt", m.edited_at AS "editedAt", m.deleted_at AS "deletedAt", q.deleted_at IS NOT NULL AS "quoteDeleted", m.pinned_by AS "pinnedById", pb.first_name || ' ' || pb.last_name AS "pinnedByName",
   q.id AS "quoteId", q.user_id AS "quoteUserId", qu.first_name AS "quoteFirstName", qu.last_name AS "quoteLastName",
   left(q.body, 400) AS "quoteBody", q.recipient_id AS "quoteRecipientId", q.thread_root_id AS "quoteThreadRootId",
   (SELECT count(*)::int FROM chat_attachments qa WHERE q.id IS NOT NULL AND qa.message_id = q.id) AS "quoteAttachments",
   th.replies AS "threadReplies", th.unread AS "threadUnread", th.last_at AS "threadLastAt", th.participants AS "threadParticipants",
-  rc.total AS "receiptsTotal", rc.delivered AS "receiptsDelivered", rc.read AS "receiptsRead",
+  rc.total AS "receiptsTotal", rc.delivered AS "receiptsDelivered", rc.read AS "receiptsRead", rc.played AS "receiptsPlayed",
   EXISTS (SELECT 1 FROM chat_receipts mr WHERE mr.message_id = m.id AND mr.user_id = $1 AND mr.read_at IS NULL) AS "unreadByMe",
   EXISTS (SELECT 1 FROM chat_mentions mm WHERE mm.message_id = m.id AND mm.user_id = $1) AS "mentionsMe",
   (SELECT json_agg(json_build_object('id', mu.id, 'username', mu.username, 'firstName', mu.first_name, 'lastName', mu.last_name) ORDER BY mu.id)
      FROM chat_mentions cm JOIN users mu ON mu.id = cm.user_id WHERE cm.message_id = m.id) AS mentions,
-  (SELECT json_agg(json_build_object('id', a.id, 'name', a.name, 'mime', a.mime, 'size', a.size) ORDER BY a.id)
+  (SELECT json_agg(json_build_object('id', a.id, 'name', a.name, 'mime', a.mime, 'size', a.size, 'durationMs', a.duration_ms) ORDER BY a.id)
      FROM chat_attachments a WHERE a.message_id = m.id) AS attachments`;
 
 export const CHAT_FROM = `
@@ -37,7 +38,7 @@ export const CHAT_FROM = `
     FROM chat_messages t WHERE m.thread_root_id IS NULL AND t.thread_root_id = m.id
   ) th ON TRUE
   LEFT JOIN LATERAL (
-    SELECT count(*)::int AS total, count(x.delivered_at)::int AS delivered, count(x.read_at)::int AS read
+    SELECT count(*)::int AS total, count(x.delivered_at)::int AS delivered, count(x.read_at)::int AS read, count(x.played_at)::int AS played
     FROM chat_receipts x JOIN users xu ON xu.id = x.user_id AND xu.active
     WHERE m.user_id = $1 AND x.message_id = m.id
   ) rc ON m.user_id = $1`;

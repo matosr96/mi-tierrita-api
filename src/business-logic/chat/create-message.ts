@@ -4,6 +4,7 @@ import { extractMentions, type ChatMessageResponse, type CreateChatMessageReques
 import { findUserById } from "../users/find-user";
 import { chatEventPreview, publishChatEvent } from "./realtime";
 import { canQuote, findVisibleMessage, loadMessages, sameConversation, whereOf, type ChatMessageCore } from "./shared";
+import { answerTitaMention } from "./tita-reply";
 
 const invalid = (path: string, message: string) => domainError(ErrorCodes.VALIDATION, [{ path, message }]);
 
@@ -101,6 +102,8 @@ export const createChatMessage = async (userId: number, input: CreateChatMessage
       attachments: message.attachments.length,
       mentionIds: mentions,
     });
+    // @Tita: responde después, como un mensaje más de la conversación (no retrasa el envío).
+    void answerTitaMention({ id: messageId, userId, recipientId: input.recipientId, threadRootId: input.threadRootId, body: input.body });
   }
   return message;
 };

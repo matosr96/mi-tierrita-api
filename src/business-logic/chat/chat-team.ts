@@ -25,7 +25,7 @@ type MemberRow = {
 
 const preview = (body: string | null, attachments: number | null, at: Date | null, mine: boolean | null, deleted: boolean | null): ChatPreview => {
   if (body === null || at === null) return null;
-  const text = deleted ? "Se eliminó este mensaje" : body.trim() === "" ? ((attachments ?? 0) === 1 ? "📎 Archivo" : `📎 ${attachments ?? 0} archivos`) : body;
+  const text = deleted ? "Se eliminó este mensaje" : body.trim() === "" ? ((attachments ?? 0) === 1 ? "Envió un archivo" : `Envió ${attachments ?? 0} archivos`) : body;
   return { body: text.length > 90 ? `${text.slice(0, 89)}…` : text, createdAt: at.toISOString(), mine: Boolean(mine) };
 };
 
