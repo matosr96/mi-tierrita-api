@@ -32,6 +32,9 @@ tags:
   - { name: Asistente de IA }
   - { name: Alarmas y avisos }
   - { name: Calendario }
+  - { name: Pedidos }
+  - { name: Nómina }
+  - { name: Conteos de inventario }
   - { name: Web Push }
 
 paths:
@@ -1404,8 +1407,9 @@ paths:
         Brief 2.5, punto 31. Ítems con fecha dentro del rango (por defecto el mes en curso; como mucho 62 días, si no
         400): lotes con existencias que vencen en el rango (ADMIN y WAREHOUSE; alta si vencen en 7 días o ya
         vencieron), cobros de cartera (ADMIN y SALES; fecha en que la última venta a crédito cumple el plazo del
-        reporte), alarmas propias (próximos disparos y los ya ocurridos) y cierres de mes. «Pedidos», «nómina» y
-        «conteos de inventario» no existen en el sistema.
+        reporte), pedidos abiertos (`order`: a proveedor para ADMIN y WAREHOUSE, de cliente para ADMIN y SALES),
+        pagos de nómina sin hacer (`payroll`, solo ADMIN), conteos de inventario pendientes (`count`, ADMIN y
+        WAREHOUSE), alarmas propias (próximos disparos y los ya ocurridos) y cierres de mes.
       parameters:
         - { $ref: "#/components/parameters/from" }
         - { $ref: "#/components/parameters/to" }
@@ -1436,7 +1440,9 @@ paths:
         Calculados en el servidor: ADMIN y WAREHOUSE reciben lotes vencidos y por vencer (7 días); ADMIN y SALES,
         cartera vencida (misma regla del reporte: última venta a crédito con más de 30 días) y cobros a 5 días de
         vencer. El planificador publica el mismo resumen a las 07:00 (evento `due` del stream y Web Push) una vez al
-        día. «Pedidos por vencer» no existe: no hay tabla de pedidos.
+        día. También: pedidos atrasados o a 2 días (`order_overdue`, `order_due_soon`; cada rol los tipos que maneja),
+        nómina por pagar desde 3 días antes (`payroll_due`, solo ADMIN) y conteos atrasados o de hoy y mañana
+        (`count_overdue`, `count_due`; ADMIN y WAREHOUSE).
       responses:
         "200":
           description: Avisos del rol
@@ -1448,6 +1454,483 @@ paths:
                   count: { type: integer }
                   summary: { type: string }
                   items: { type: array, items: { $ref: "#/components/schemas/DueItem" } }
+
+  # ------------------------------------------------------------ Nómina
+  /payroll/employees:
+    get:
+      tags: [Nómina]
+      summary: Listar empleados de nómina — ADMIN
+      parameters:
+        - { $ref: "#/components/parameters/page" }
+        - { $ref: "#/components/parameters/limit" }
+        - { $ref: "#/components/parameters/active" }
+        - { name: frequency, in: query, schema: { type: string, enum: [MONTHLY, BIWEEKLY] } }
+      responses:
+        "200": { description: Listado paginado, content: { application/json: { schema: { $ref: "#/components/schemas/PayrollEmployeePage" } } } }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      tags: [Nómina]
+      summary: Crear empleado — ADMIN
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/PayrollEmployeeInput" } } } }
+      responses:
+        "201": { description: Creado, content: { application/json: { schema: { $ref: "#/components/schemas/PayrollEmployee" } } } }
+        "400": { $ref: "#/components/responses/Validation" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { description: "603 la cuenta de usuario no existe", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+        "409": { description: "630 documento o cuenta ya usados por otro empleado", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+  /payroll/employees/{id}:
+    put:
+      tags: [Nómina]
+      summary: Editar, activar o desactivar empleado — ADMIN
+      description: Campos parciales; `userId` null desvincula la cuenta. Los cambios de salario valen para los periodos que se creen después.
+      parameters: [{ $ref: "#/components/parameters/id" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              minProperties: 1
+              properties:
+                firstName: { type: string, maxLength: 80 }
+                lastName: { type: string, maxLength: 80 }
+                documentId: { type: string, minLength: 3, maxLength: 20 }
+                position: { type: string, maxLength: 80 }
+                baseSalary: { type: number, minimum: 1 }
+                payFrequency: { type: string, enum: [MONTHLY, BIWEEKLY] }
+                active: { type: boolean }
+                userId: { type: [integer, "null"] }
+      responses:
+        "200": { description: Actualizado, content: { application/json: { schema: { $ref: "#/components/schemas/PayrollEmployee" } } } }
+        "400": { $ref: "#/components/responses/Validation" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { description: "705 empleado · 603 cuenta", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+        "409": { description: "630", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+  /payroll/periods:
+    get:
+      tags: [Nómina]
+      summary: Listar periodos de nómina — ADMIN
+      description: Más recientes primero. `year` filtra por el año de inicio del periodo; un valor inválido se ignora.
+      parameters:
+        - { $ref: "#/components/parameters/page" }
+        - { $ref: "#/components/parameters/limit" }
+        - { name: status, in: query, schema: { type: string, enum: [DRAFT, APPROVED, PAID] } }
+        - { name: year, in: query, schema: { type: integer, minimum: 2000, maximum: 2100 } }
+      responses:
+        "200": { description: Listado paginado, content: { application/json: { schema: { $ref: "#/components/schemas/PayrollPeriodPage" } } } }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      tags: [Nómina]
+      summary: Crear periodo en borrador — ADMIN
+      description: >-
+        Crea una línea por cada empleado activo de esa frecuencia con el salario base prorrateado (quincenal = mitad del
+        mensual) y salud y pensión del trabajador ya liquidadas. Liquidación simplificada: no es la nómina electrónica de
+        la DIAN ni calcula prestaciones sociales ni aportes del empleador.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [frequency, periodStart, periodEnd, payDate]
+              properties:
+                frequency: { type: string, enum: [MONTHLY, BIWEEKLY] }
+                periodStart: { type: string, format: date }
+                periodEnd: { type: string, format: date, description: Igual o posterior a periodStart }
+                payDate: { type: string, format: date }
+      responses:
+        "201": { description: Periodo creado con sus líneas, content: { application/json: { schema: { $ref: "#/components/schemas/PayrollPeriodDetail" } } } }
+        "400": { $ref: "#/components/responses/Validation" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { description: "708 ya existe un periodo de esa frecuencia con la misma fecha de inicio", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+        "422": { description: "709 no hay empleados activos de esa frecuencia", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+  /payroll/periods/{id}:
+    get:
+      tags: [Nómina]
+      summary: Periodo con líneas y totales — ADMIN
+      parameters: [{ $ref: "#/components/parameters/id" }]
+      responses:
+        "200": { description: Periodo, content: { application/json: { schema: { $ref: "#/components/schemas/PayrollPeriodDetail" } } } }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { description: "706", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+    delete:
+      tags: [Nómina]
+      summary: Eliminar borrador — ADMIN
+      parameters: [{ $ref: "#/components/parameters/id" }]
+      responses:
+        "204": { description: Eliminado con sus líneas }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { description: "706", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+        "409": { description: "707 el periodo no es un borrador", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+  /payroll/periods/{id}/lines/{lineId}:
+    put:
+      tags: [Nómina]
+      summary: Editar los valores escritos a mano de una línea — ADMIN, solo en borrador
+      description: El servidor recalcula salud, pensión, devengado, deducciones, neto y los totales del periodo; los totales que envíe el cliente se ignoran.
+      parameters:
+        - { $ref: "#/components/parameters/id" }
+        - { name: lineId, in: path, required: true, schema: { type: integer, minimum: 1 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              minProperties: 1
+              properties:
+                overtime: { type: number, minimum: 0, description: Horas extra y recargos en pesos }
+                bonuses: { type: number, minimum: 0, description: Bonificaciones (no cotizan) }
+                transport: { type: number, minimum: 0, description: Auxilio de transporte del decreto vigente (no cotiza) }
+                otherDeductions: { type: number, minimum: 0, description: Otros descuentos }
+      responses:
+        "200": { description: Periodo recalculado, content: { application/json: { schema: { $ref: "#/components/schemas/PayrollPeriodDetail" } } } }
+        "400": { description: "400 (también si las deducciones superan el devengado, en `otherDeductions`)", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { description: "706 periodo o línea", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+        "409": { description: "707 el periodo no es un borrador", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+  /payroll/periods/{id}/approve:
+    post:
+      tags: [Nómina]
+      summary: Aprobar borrador — ADMIN
+      parameters: [{ $ref: "#/components/parameters/id" }]
+      responses:
+        "200": { description: Aprobado (registra quién y cuándo), content: { application/json: { schema: { $ref: "#/components/schemas/PayrollPeriodDetail" } } } }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { description: "706", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+        "409": { description: "707 el periodo no es un borrador", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+  /payroll/periods/{id}/pay:
+    post:
+      tags: [Nómina]
+      summary: Marcar pagado — ADMIN
+      description: Solo un periodo aprobado. Registra quién y cuándo; no mueve dinero ni reporta a la DIAN.
+      parameters: [{ $ref: "#/components/parameters/id" }]
+      responses:
+        "200": { description: Pagado, content: { application/json: { schema: { $ref: "#/components/schemas/PayrollPeriodDetail" } } } }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { description: "706", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+        "409": { description: "707 el periodo no está aprobado", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+
+  # ------------------------------------------------------------ Pedidos (no estaban en el documento 06; migración 0014)
+  /orders:
+    get:
+      tags: [Pedidos]
+      summary: Listar pedidos — cualquier rol, solo los tipos que maneja
+      description: >-
+        SUPPLIER (pedido a proveedor) lo ven ADMIN y WAREHOUSE; CUSTOMER (encargo de cliente), ADMIN y SALES. Sin `kind`
+        lista todos los tipos del rol; un `kind` ajeno responde 613. Abiertos primero por fecha comprometida.
+      parameters:
+        - { name: kind, in: query, schema: { type: string, enum: [SUPPLIER, CUSTOMER] } }
+        - { name: status, in: query, schema: { type: string }, description: "Uno o varios separados por coma: PENDING, PARTIAL, RECEIVED, DELIVERED, CANCELLED" }
+        - { $ref: "#/components/parameters/from" }
+        - { $ref: "#/components/parameters/to" }
+        - { name: q, in: query, schema: { type: string }, description: Proveedor, cliente, nota o número del pedido }
+        - { $ref: "#/components/parameters/page" }
+        - { $ref: "#/components/parameters/limit" }
+      responses:
+        "200": { description: Listado paginado, content: { application/json: { schema: { $ref: "#/components/schemas/OrderPage" } } } }
+        "400": { $ref: "#/components/responses/Validation" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      tags: [Pedidos]
+      summary: Crear pedido — SUPPLIER ADMIN y WAREHOUSE; CUSTOMER ADMIN y SALES
+      description: Sin `unitPrice` el servidor pone el precio de venta (cliente) o el de compra (proveedor). El total lo calcula el servidor.
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/CreateOrder" } } } }
+      responses:
+        "201": { description: Creado (PENDING), content: { application/json: { schema: { $ref: "#/components/schemas/OrderDetail" } } } }
+        "400": { $ref: "#/components/responses/Validation" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { description: "605 proveedor · 604 cliente · 601 producto", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+        "409": { description: "625 producto inactivo · 626 cliente inactivo", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+  /orders/{id}:
+    parameters: [{ $ref: "#/components/parameters/id" }]
+    get:
+      tags: [Pedidos]
+      summary: Detalle del pedido con sus líneas — quien maneje ese tipo
+      responses:
+        "200": { description: Pedido, content: { application/json: { schema: { $ref: "#/components/schemas/OrderDetail" } } } }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { description: "700", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+    put:
+      tags: [Pedidos]
+      summary: Editar pedido pendiente — quien maneje ese tipo
+      description: Todo opcional (al menos un campo). `lines` reemplaza todas las líneas y recalcula el total; `note` null la borra. El tipo no cambia.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                supplierId: { type: integer, description: Solo SUPPLIER }
+                customerId: { type: integer, description: Solo CUSTOMER }
+                dueDate: { type: string, format: date }
+                note: { type: [string, "null"], maxLength: 500 }
+                lines: { type: array, minItems: 1, maxItems: 100, items: { $ref: "#/components/schemas/OrderLineInput" } }
+      responses:
+        "200": { description: Actualizado, content: { application/json: { schema: { $ref: "#/components/schemas/OrderDetail" } } } }
+        "400": { $ref: "#/components/responses/Validation" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { description: "700", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+        "409": { description: "701 el pedido no está pendiente", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+  /orders/{id}/receive:
+    post:
+      tags: [Pedidos]
+      summary: Recibir pedido a proveedor (en todo o en parte) — ADMIN, WAREHOUSE
+      description: >-
+        Cada línea recibida se registra como compra (`registerPurchase`: crea el lote del proveedor y sube el stock) en una
+        sola transacción con el pedido bloqueado. Sin `unitCost` se usa el costo esperado de la línea. Si todo quedó
+        recibido pasa a RECEIVED; si no, a PARTIAL. Un encargo de cliente responde 400 (`kind`).
+      parameters: [{ $ref: "#/components/parameters/id" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [lines]
+              properties:
+                lines:
+                  type: array
+                  minItems: 1
+                  items:
+                    type: object
+                    required: [lineId, quantity, expiresAt]
+                    properties:
+                      lineId: { type: integer }
+                      quantity: { type: integer, minimum: 1 }
+                      unitCost: { type: number, minimum: 0, description: Costo real; por defecto el esperado }
+                      expiresAt: { type: string, format: date, description: Vencimiento del lote; hoy o posterior }
+      responses:
+        "200":
+          description: Pedido actualizado y lotes creados
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  order: { $ref: "#/components/schemas/OrderDetail" }
+                  batches: { type: array, items: { $ref: "#/components/schemas/ProductBatch" } }
+        "400": { $ref: "#/components/responses/Validation" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { description: "700", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+        "409": { description: "702 supera lo que falta (details lineId, pending, requested) · 703 pedido cerrado", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+  /orders/{id}/deliver:
+    post:
+      tags: [Pedidos]
+      summary: Marcar entregado un encargo de cliente — ADMIN, SALES
+      parameters: [{ $ref: "#/components/parameters/id" }]
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, properties: { saleId: { type: integer, description: Venta con que se cobró (mismo cliente, no anulada) } } }
+      responses:
+        "200": { description: Entregado, content: { application/json: { schema: { $ref: "#/components/schemas/OrderDetail" } } } }
+        "400": { $ref: "#/components/responses/Validation" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { description: "700 pedido · 606 venta", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+        "409": { description: "703 pedido cerrado · 704 venta de otro cliente o anulada · 630 la venta ya cobra otro encargo", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+  /orders/{id}/cancel:
+    post:
+      tags: [Pedidos]
+      summary: Cancelar pedido abierto — quien maneje ese tipo
+      description: Pendiente o recibido en parte (lo que ya llegó sigue en bodega).
+      parameters: [{ $ref: "#/components/parameters/id" }]
+      responses:
+        "200": { description: Cancelado, content: { application/json: { schema: { $ref: "#/components/schemas/OrderDetail" } } } }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { description: "700", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+        "409": { description: "703 ya estaba cerrado", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+
+  # ------------------------------------------------------------ Conteos de inventario (no estaban en el documento 06; migración 0016)
+  /stock-counts:
+    get:
+      tags: [Conteos de inventario]
+      summary: Listar conteos — ADMIN, WAREHOUSE
+      description: Primero los abiertos (en curso, enviados, programados) del más próximo al más lejano; luego los cerrados. `from` y `to` filtran por fecha programada (inclusive).
+      parameters:
+        - { name: status, in: query, schema: { type: string, enum: [PLANNED, IN_PROGRESS, SUBMITTED, APPLIED, CANCELLED] } }
+        - { $ref: "#/components/parameters/from" }
+        - { $ref: "#/components/parameters/to" }
+        - { $ref: "#/components/parameters/page" }
+        - { $ref: "#/components/parameters/limit" }
+      responses:
+        "200":
+          description: Página de conteos
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count: { type: integer }
+                  page: { type: integer }
+                  pages: { type: integer }
+                  items: { type: array, items: { $ref: "#/components/schemas/StockCount" } }
+        "400": { $ref: "#/components/responses/Validation" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      tags: [Conteos de inventario]
+      summary: Programar un conteo (PLANNED) — ADMIN, WAREHOUSE
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title, scheduledDate]
+              properties:
+                title: { type: string, maxLength: 120 }
+                scheduledDate: { type: string, format: date, description: De hoy en adelante }
+                scope: { type: string, enum: [ALL, CATEGORY], default: ALL }
+                categoryId: { type: integer, description: Obligatoria con alcance CATEGORY; se ignora con ALL }
+                note: { type: string, maxLength: 400 }
+      responses:
+        "201": { description: Conteo programado, content: { application/json: { schema: { $ref: "#/components/schemas/StockCountDetail" } } } }
+        "400": { $ref: "#/components/responses/Validation" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { description: "602 categoría inexistente", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+  /stock-counts/{id}:
+    get:
+      tags: [Conteos de inventario]
+      summary: Conteo con sus líneas y resumen — ADMIN, WAREHOUSE
+      parameters: [{ $ref: "#/components/parameters/id" }]
+      responses:
+        "200": { description: Conteo, content: { application/json: { schema: { $ref: "#/components/schemas/StockCountDetail" } } } }
+        "404": { description: "710", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+    put:
+      tags: [Conteos de inventario]
+      summary: Cambiar título, fecha o nota (solo PLANNED) — ADMIN, WAREHOUSE
+      parameters: [{ $ref: "#/components/parameters/id" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title: { type: string, maxLength: 120 }
+                scheduledDate: { type: string, format: date }
+                note: { type: [string, "null"], maxLength: 400, description: null o "" la borra }
+      responses:
+        "200": { description: Conteo actualizado, content: { application/json: { schema: { $ref: "#/components/schemas/StockCountDetail" } } } }
+        "400": { $ref: "#/components/responses/Validation" }
+        "404": { description: "710", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+        "409": { description: "711 el conteo ya no está programado", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+  /stock-counts/{id}/start:
+    post:
+      tags: [Conteos de inventario]
+      summary: Iniciar (PLANNED → IN_PROGRESS) — ADMIN, WAREHOUSE
+      description: Crea una línea por cada producto activo del alcance con su stock físico de este momento (`expectedQuantity`). Sin productos activos responde 400.
+      parameters: [{ $ref: "#/components/parameters/id" }]
+      responses:
+        "200": { description: Conteo en curso con sus líneas, content: { application/json: { schema: { $ref: "#/components/schemas/StockCountDetail" } } } }
+        "400": { $ref: "#/components/responses/Validation" }
+        "404": { description: "710", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+        "409": { description: "711", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+  /stock-counts/{id}/lines:
+    put:
+      tags: [Conteos de inventario]
+      summary: Registrar lo contado (solo IN_PROGRESS; se puede guardar a medias) — ADMIN, WAREHOUSE
+      parameters: [{ $ref: "#/components/parameters/id" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [lines]
+              properties:
+                lines:
+                  type: array
+                  minItems: 1
+                  items:
+                    type: object
+                    required: [productId, countedQuantity]
+                    properties:
+                      productId: { type: integer }
+                      countedQuantity: { type: [integer, "null"], minimum: 0, description: null deja la línea sin contar }
+                      note: { type: [string, "null"], maxLength: 200, description: Ausente no la toca; null o "" la borra }
+      responses:
+        "200": { description: Conteo con la diferencia de cada línea, content: { application/json: { schema: { $ref: "#/components/schemas/StockCountDetail" } } } }
+        "400": { $ref: "#/components/responses/Validation" }
+        "404": { description: "710", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+        "409": { description: "711", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+  /stock-counts/{id}/submit:
+    post:
+      tags: [Conteos de inventario]
+      summary: Enviar (IN_PROGRESS → SUBMITTED) — ADMIN, WAREHOUSE
+      parameters: [{ $ref: "#/components/parameters/id" }]
+      responses:
+        "200": { description: Conteo enviado, content: { application/json: { schema: { $ref: "#/components/schemas/StockCountDetail" } } } }
+        "404": { description: "710", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+        "409": { description: "711", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+        "422": { description: "712 faltan líneas por contar (`details.pending`, `details.productIds`)", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+  /stock-counts/{id}/preview-adjustment:
+    get:
+      tags: [Conteos de inventario]
+      summary: Vista previa del ajuste contra el stock actual (solo SUBMITTED) — ADMIN, WAREHOUSE
+      description: Diferencia = contado − stock físico actual. Solo las líneas con diferencia; los faltantes traen los lotes de los que saldrían (vencidos primero, luego el que vence antes) y los sobrantes el costo del lote de ajuste. No escribe nada.
+      parameters: [{ $ref: "#/components/parameters/id" }]
+      responses:
+        "200": { description: Ajuste propuesto, content: { application/json: { schema: { $ref: "#/components/schemas/AdjustmentPreview" } } } }
+        "404": { description: "710", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+        "409": { description: "711 el conteo no está enviado", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+  /stock-counts/{id}/apply:
+    post:
+      tags: [Conteos de inventario]
+      summary: Aplicar el ajuste de existencias (SUBMITTED → APPLIED) — ADMIN
+      description: >-
+        En una transacción con el conteo, los productos y sus lotes bloqueados (`FOR UPDATE`) se recalcula la diferencia
+        contra el stock actual. Faltantes: bajan `quantity_remaining` por FEFO (vencidos primero) y `products.stock`.
+        Sobrantes: crean un lote con la fecha indicada en `surplusLots` y el último costo conocido del producto (o el
+        precio de compra vigente). Cada movimiento queda en `stock_count_adjustments`.
+      parameters: [{ $ref: "#/components/parameters/id" }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                surplusLots:
+                  type: array
+                  items:
+                    type: object
+                    required: [productId, expiresAt]
+                    properties:
+                      productId: { type: integer }
+                      expiresAt: { type: string, format: date, description: De hoy en adelante }
+      responses:
+        "200":
+          description: Conteo aplicado con los movimientos hechos
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - { $ref: "#/components/schemas/StockCountDetail" }
+                  - type: object
+                    properties:
+                      adjustments:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            productId: { type: integer }
+                            productName: { type: string }
+                            sku: { type: string }
+                            difference: { type: integer }
+                            batches: { type: array, items: { type: object, properties: { productBatchId: { type: integer }, quantity: { type: integer, description: Negativa = descontada; positiva = lote creado } } } }
+        "400": { description: "400 cuerpo mal formado · 713 falta o es anterior a hoy la fecha de un sobrante (`details: [{ path: expiresAt.<productId>, productId, message }]`)", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { description: "710", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+        "409": { description: "711 el conteo no está enviado · 714 faltante mayor que las unidades en lotes", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+  /stock-counts/{id}/cancel:
+    post:
+      tags: [Conteos de inventario]
+      summary: Cancelar (PLANNED o IN_PROGRESS) — ADMIN, WAREHOUSE
+      parameters: [{ $ref: "#/components/parameters/id" }]
+      responses:
+        "200": { description: Conteo cancelado, content: { application/json: { schema: { $ref: "#/components/schemas/StockCountDetail" } } } }
+        "404": { description: "710", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+        "409": { description: "711", content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
 
   # ------------------------------------------------------------ Web Push
   /push/public-key:
@@ -1635,7 +2118,7 @@ components:
     DueItem:
       type: object
       properties:
-        kind: { type: string, enum: [batch_expiring, batch_expired, receivable_overdue, receivable_due_soon] }
+        kind: { type: string, enum: [batch_expiring, batch_expired, receivable_overdue, receivable_due_soon, order_overdue, order_due_soon, payroll_due, count_overdue, count_due] }
         id: { type: integer, description: Id del lote o del cliente }
         title: { type: string }
         detail: { type: string }
@@ -1656,11 +2139,90 @@ components:
         online: { type: boolean }
         lastSeenAt: { type: string, format: date-time, nullable: true }
         active: { type: boolean, description: Solo ADMIN recibe cuentas inactivas }
+    PayrollEmployeeInput:
+      type: object
+      required: [firstName, lastName, documentId, position, baseSalary, payFrequency]
+      properties:
+        firstName: { type: string, maxLength: 80 }
+        lastName: { type: string, maxLength: 80 }
+        documentId: { type: string, minLength: 3, maxLength: 20, description: "Único; dígitos, letras, punto o guion" }
+        position: { type: string, maxLength: 80, description: Cargo }
+        baseSalary: { type: number, minimum: 1, description: Salario mensual pactado en pesos }
+        payFrequency: { type: string, enum: [MONTHLY, BIWEEKLY] }
+        userId: { type: integer, description: Cuenta del sistema (opcional) }
+    PayrollEmployee:
+      allOf:
+        - { $ref: "#/components/schemas/PayrollEmployeeInput" }
+        - type: object
+          properties:
+            id: { type: integer }
+            active: { type: boolean }
+            userId: { type: [integer, "null"] }
+            createdAt: { type: string, format: date-time }
+            updatedAt: { type: string, format: date-time }
+    PayrollEmployeePage:
+      type: object
+      properties:
+        count: { type: integer }
+        page: { type: integer }
+        pages: { type: integer }
+        items: { type: array, items: { $ref: "#/components/schemas/PayrollEmployee" } }
+    PayrollPerson:
+      type: [object, "null"]
+      properties: { id: { type: integer }, firstName: { type: string }, lastName: { type: string } }
+    PayrollPeriod:
+      type: object
+      properties:
+        id: { type: integer }
+        frequency: { type: string, enum: [MONTHLY, BIWEEKLY] }
+        periodStart: { type: string, format: date }
+        periodEnd: { type: string, format: date }
+        payDate: { type: string, format: date }
+        status: { type: string, enum: [DRAFT, APPROVED, PAID] }
+        editable: { type: boolean, description: Solo un borrador se edita o se elimina }
+        totalGross: { type: number, description: Suma del devengado de las líneas (servidor) }
+        totalDeductions: { type: number }
+        totalNet: { type: number }
+        employeeCount: { type: integer }
+        createdBy: { $ref: "#/components/schemas/PayrollPerson" }
+        approvedBy: { $ref: "#/components/schemas/PayrollPerson" }
+        paidBy: { $ref: "#/components/schemas/PayrollPerson" }
+        approvedAt: { type: [string, "null"], format: date-time }
+        paidAt: { type: [string, "null"], format: date-time }
+        createdAt: { type: string, format: date-time }
+    PayrollLine:
+      type: object
+      description: "Pesos enteros. gross = base + overtime + bonuses + transport; health = pension = 4 % de (base + overtime); deductions = health + pension + otherDeductions; net = gross − deductions."
+      properties:
+        id: { type: integer }
+        employeeId: { type: integer }
+        employee: { type: object, properties: { firstName: { type: string }, lastName: { type: string }, documentId: { type: string }, position: { type: string } } }
+        base: { type: number }
+        overtime: { type: number }
+        bonuses: { type: number }
+        transport: { type: number }
+        health: { type: number }
+        pension: { type: number }
+        otherDeductions: { type: number }
+        gross: { type: number }
+        deductions: { type: number }
+        net: { type: number }
+    PayrollPeriodDetail:
+      allOf:
+        - { $ref: "#/components/schemas/PayrollPeriod" }
+        - { type: object, properties: { lines: { type: array, items: { $ref: "#/components/schemas/PayrollLine" } } } }
+    PayrollPeriodPage:
+      type: object
+      properties:
+        count: { type: integer }
+        page: { type: integer }
+        pages: { type: integer }
+        items: { type: array, items: { $ref: "#/components/schemas/PayrollPeriod" } }
     CalendarItem:
       type: object
       properties:
         id: { type: string, description: "Único en la respuesta: <kind>-<id>[-<fecha>]" }
-        kind: { type: string, enum: [batch, receivable, alarm, closing] }
+        kind: { type: string, enum: [batch, receivable, alarm, closing, order, payroll, count] }
         title: { type: string }
         detail: { type: string }
         date: { type: string, format: date }
@@ -1921,6 +2483,70 @@ components:
         active: { type: boolean }
         createdAt: { type: string, format: date-time }
     SupplierPage: { allOf: [{ $ref: "#/components/schemas/Page" }, { type: object, properties: { items: { type: array, items: { $ref: "#/components/schemas/Supplier" } } } }] }
+    OrderLineInput:
+      type: object
+      required: [productId, quantity]
+      properties:
+        productId: { type: integer }
+        quantity: { type: integer, minimum: 1 }
+        unitPrice: { type: number, minimum: 0, description: "Precio acordado (cliente) o costo esperado (proveedor); por defecto el del producto" }
+    CreateOrder:
+      type: object
+      required: [kind, dueDate, lines]
+      properties:
+        kind: { type: string, enum: [SUPPLIER, CUSTOMER] }
+        supplierId: { type: integer, description: Obligatorio en SUPPLIER; prohibido en CUSTOMER }
+        customerId: { type: integer, description: Obligatorio en CUSTOMER; prohibido en SUPPLIER }
+        dueDate: { type: string, format: date, description: Llegada esperada o entrega comprometida }
+        note: { type: string, maxLength: 500 }
+        lines: { type: array, minItems: 1, maxItems: 100, items: { $ref: "#/components/schemas/OrderLineInput" } }
+    Order:
+      type: object
+      properties:
+        id: { type: integer }
+        kind: { type: string, enum: [SUPPLIER, CUSTOMER] }
+        supplierId: { type: [integer, "null"] }
+        supplierName: { type: [string, "null"] }
+        customerId: { type: [integer, "null"] }
+        customerName: { type: [string, "null"] }
+        counterpartName: { type: string }
+        status: { type: string, enum: [PENDING, PARTIAL, RECEIVED, DELIVERED, CANCELLED] }
+        dueDate: { type: string, format: date }
+        note: { type: [string, "null"] }
+        total: { type: number, description: Suma de cantidad × precio, calculada por el servidor }
+        lineCount: { type: integer }
+        open: { type: boolean, description: PENDING o PARTIAL }
+        overdue: { type: boolean, description: Abierto con fecha anterior a hoy (hora del negocio) }
+        daysToDue: { type: integer, description: Días de hoy a dueDate (negativo si ya pasó) }
+        createdBy: { type: integer }
+        createdByUsername: { type: string }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        closedAt: { type: [string, "null"], format: date-time }
+        closedBy: { type: [integer, "null"] }
+        closedByUsername: { type: [string, "null"] }
+        saleId: { type: [integer, "null"] }
+        saleInvoiceNumber: { type: [string, "null"] }
+    OrderDetail:
+      allOf:
+        - { $ref: "#/components/schemas/Order" }
+        - type: object
+          properties:
+            lines:
+              type: array
+              items:
+                type: object
+                properties:
+                  id: { type: integer }
+                  productId: { type: integer }
+                  productName: { type: string }
+                  sku: { type: string }
+                  quantity: { type: integer }
+                  unitPrice: { type: number }
+                  lineTotal: { type: number }
+                  receivedQuantity: { type: integer, description: Recibidas (proveedor) o entregadas (cliente) }
+                  pendingQuantity: { type: integer }
+    OrderPage: { allOf: [{ $ref: "#/components/schemas/Page" }, { type: object, properties: { items: { type: array, items: { $ref: "#/components/schemas/Order" } } } }] }
     CreateSupplier:
       type: object
       required: [name]
@@ -2177,6 +2803,93 @@ components:
         interest: { type: number }
         principal: { type: number }
         balance: { type: number }
+
+    StockCount:
+      type: object
+      properties:
+        id: { type: integer }
+        title: { type: string }
+        scheduledDate: { type: string, format: date }
+        scope: { type: string, enum: [ALL, CATEGORY] }
+        categoryId: { type: [integer, "null"] }
+        categoryName: { type: [string, "null"] }
+        status: { type: string, enum: [PLANNED, IN_PROGRESS, SUBMITTED, APPLIED, CANCELLED] }
+        note: { type: [string, "null"] }
+        createdBy: { type: integer }
+        createdByName: { type: string }
+        startedAt: { type: [string, "null"], format: date-time }
+        startedByName: { type: [string, "null"] }
+        submittedAt: { type: [string, "null"], format: date-time }
+        submittedByName: { type: [string, "null"] }
+        appliedAt: { type: [string, "null"], format: date-time }
+        appliedByName: { type: [string, "null"] }
+        cancelledAt: { type: [string, "null"], format: date-time }
+        cancelledByName: { type: [string, "null"] }
+        createdAt: { type: string, format: date-time }
+        totalLines: { type: integer }
+        countedLines: { type: integer }
+        due: { type: [string, "null"], enum: [OVERDUE, TODAY, UPCOMING, null], description: Solo en PLANNED e IN_PROGRESS }
+    StockCountDetail:
+      allOf:
+        - { $ref: "#/components/schemas/StockCount" }
+        - type: object
+          properties:
+            lines:
+              type: array
+              items:
+                type: object
+                properties:
+                  id: { type: integer }
+                  productId: { type: integer }
+                  productName: { type: string }
+                  sku: { type: string }
+                  categoryName: { type: string }
+                  expectedQuantity: { type: integer, description: Stock físico al iniciar }
+                  countedQuantity: { type: [integer, "null"] }
+                  difference: { type: [integer, "null"], description: countedQuantity − expectedQuantity }
+                  appliedDifference: { type: [integer, "null"], description: Diferencia contra el stock actual con que se aplicó }
+                  note: { type: [string, "null"] }
+            summary:
+              type: object
+              properties:
+                totalLines: { type: integer }
+                countedLines: { type: integer }
+                pendingLines: { type: integer }
+                linesWithDifference: { type: integer }
+                shortageUnits: { type: integer }
+                surplusUnits: { type: integer }
+    AdjustmentPreview:
+      type: object
+      properties:
+        countId: { type: integer }
+        status: { type: string }
+        lines:
+          type: array
+          items:
+            type: object
+            properties:
+              productId: { type: integer }
+              productName: { type: string }
+              sku: { type: string }
+              expectedQuantity: { type: integer }
+              countedQuantity: { type: integer }
+              currentStock: { type: integer }
+              difference: { type: integer, description: countedQuantity − currentStock }
+              kind: { type: string, enum: [SHORTAGE, SURPLUS] }
+              stockChangedSinceStart: { type: boolean }
+              deductions: { type: array, items: { type: object, properties: { productBatchId: { type: integer }, expiresAt: { type: string, format: date }, expired: { type: boolean }, quantity: { type: integer } } } }
+              exceedsStock: { type: boolean }
+              lastUnitCost: { type: [number, "null"] }
+              needsExpiry: { type: boolean }
+        summary:
+          type: object
+          properties:
+            shortageLines: { type: integer }
+            surplusLines: { type: integer }
+            shortageUnits: { type: integer }
+            surplusUnits: { type: integer }
+            unchangedLines: { type: integer }
+            changedSinceStart: { type: integer }
 
 security:
   - bearerAuth: []

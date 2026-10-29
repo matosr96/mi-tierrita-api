@@ -56,6 +56,27 @@ export const ErrorCodes = {
 
   LIBRARY_ITEM_NOT_FOUND: "690",
   AVATAR_NOT_FOUND: "691",
+
+  // Pedidos (0014)
+  ORDER_NOT_FOUND: "700",
+  ORDER_NOT_EDITABLE: "701",
+  ORDER_RECEIPT_EXCEEDS: "702",
+  ORDER_CLOSED: "703",
+  ORDER_SALE_MISMATCH: "704",
+
+  // Nómina (0015)
+  PAYROLL_EMPLOYEE_NOT_FOUND: "705",
+  PAYROLL_PERIOD_NOT_FOUND: "706",
+  PAYROLL_PERIOD_NOT_EDITABLE: "707",
+  PAYROLL_PERIOD_DUPLICATE: "708",
+  PAYROLL_NO_ACTIVE_EMPLOYEES: "709",
+
+  // Conteos de inventario (0016)
+  STOCK_COUNT_NOT_FOUND: "710",
+  STOCK_COUNT_TRANSITION_INVALID: "711",
+  STOCK_COUNT_LINES_PENDING: "712",
+  STOCK_COUNT_EXPIRY_REQUIRED: "713",
+  STOCK_COUNT_SHORTAGE_EXCEEDS_STOCK: "714",
 } as const;
 
 export type ErrorCode = (typeof ErrorCodes)[keyof typeof ErrorCodes];
@@ -104,6 +125,21 @@ export const httpStatusByCode: Record<ErrorCode, number> = {
   "688": 404,
   "690": 404,
   "691": 404,
+  "700": 404,
+  "701": 409,
+  "702": 409,
+  "703": 409,
+  "704": 409,
+  "705": 404,
+  "706": 404,
+  "707": 409,
+  "708": 409,
+  "709": 422,
+  "710": 404,
+  "711": 409,
+  "712": 422,
+  "713": 400,
+  "714": 409,
 };
 
 /**

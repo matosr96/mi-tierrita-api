@@ -21,6 +21,9 @@ import { notificationsRouter } from "./notifications";
 import { pushRouter } from "./push";
 import { libraryRouter } from "./library";
 import { calendarRouter } from "./calendar";
+import { ordersRouter } from "./orders";
+import { payrollRouter } from "./payroll";
+import { stockCountsRouter } from "./stock-counts";
 
 export { healthRouter } from "./health";
 export { docsRouter } from "./docs";
@@ -62,3 +65,6 @@ apiRouter.use("/notifications", notificationsRouter);
 apiRouter.use("/push", pushRouter);
 apiRouter.use("/library", libraryRouter);
 apiRouter.use("/calendar", calendarRouter);
+apiRouter.use("/orders", ordersRouter);
+apiRouter.use("/payroll", payrollRouter);
+apiRouter.use("/stock-counts", stockCountsRouter);
