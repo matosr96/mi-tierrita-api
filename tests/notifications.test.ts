@@ -59,3 +59,58 @@ test("evento en vivo `due`: resumen por persona", () => {
   const event = { kind: "due" as const, audience: [5], count: 3, summary: "2 lotes por vencer · 1 cobro por vencer" };
   assert.deepEqual(toClient(event, 5), { type: "due", count: 3, summary: "2 lotes por vencer · 1 cobro por vencer" });
 });
+
+/* ---------- Pedidos, nómina y conteos en los avisos por rol ---------- */
+import type { DueOrder } from "../src/business-logic/orders/list-due-orders";
+import type { ScheduledCount, UpcomingPayroll } from "../src/models/index";
+
+const dueOrder = (over: Partial<DueOrder>): DueOrder => ({
+  id: 1, kind: "SUPPLIER", status: "PENDING", dueDate: "2026-10-30", counterpartName: "Agroinsumos", supplierId: 3, customerId: null,
+  total: 100_000, lineCount: 2, pendingUnits: 12, daysToDue: 1, overdue: false, href: "/pedidos?pedido=1", ...over,
+});
+const extras = {
+  orders: [
+    dueOrder({ id: 1 }),
+    dueOrder({ id: 2, kind: "CUSTOMER", counterpartName: "Finca La Esperanza", supplierId: null, customerId: 9, dueDate: "2026-10-27", daysToDue: -2, overdue: true, href: "/pedidos?pedido=2" }),
+    dueOrder({ id: 3, dueDate: "2026-11-04", daysToDue: 6 }),
+  ],
+  payroll: [
+    { id: 9, frequency: "BIWEEKLY", periodStart: "2026-10-16", periodEnd: "2026-10-31", payDate: "2026-10-30", status: "DRAFT", totalNet: 2_281_000 },
+    { id: 10, frequency: "MONTHLY", periodStart: "2026-11-01", periodEnd: "2026-11-30", payDate: "2026-11-30", status: "DRAFT", totalNet: 1_000_000 },
+  ] as UpcomingPayroll[],
+  counts: [
+    { id: 4, title: "Conteo general", scheduledDate: "2026-10-30", status: "PLANNED", scope: "ALL", categoryId: null, categoryName: null, overdue: false },
+    { id: 5, title: "Medicina veterinaria", scheduledDate: "2026-10-28", status: "PLANNED", scope: "CATEGORY", categoryId: 2, categoryName: "Medicina veterinaria", overdue: true },
+    { id: 6, title: "Lejano", scheduledDate: "2026-11-20", status: "PLANNED", scope: "ALL", categoryId: null, categoryName: null, overdue: false },
+  ] as ScheduledCount[],
+};
+const dueOpts = { overdueDays: 30, today: "2026-10-29" };
+
+test("GET /notifications/due: pedidos por rol (proveedor para bodega, cliente para caja) atrasados o a 2 días", () => {
+  const ids = (role: "ADMIN" | "SALES" | "WAREHOUSE") => classifyDue(role, [], [], dueOpts, extras).filter((i) => i.kind.startsWith("order_")).map((i) => `${i.kind}:${i.id}`);
+  assert.deepEqual(ids("WAREHOUSE"), ["order_due_soon:1"]);
+  assert.deepEqual(ids("SALES"), ["order_overdue:2"]);
+  assert.deepEqual(ids("ADMIN").sort(), ["order_due_soon:1", "order_overdue:2"]);
+  const late = classifyDue("ADMIN", [], [], dueOpts, extras).find((i) => i.kind === "order_overdue")!;
+  assert.match(late.detail, /hace 2 días/);
+  assert.equal(late.href, "/pedidos?pedido=2");
+});
+
+test("GET /notifications/due: la nómina solo la ve administración, desde 3 días antes del pago", () => {
+  const admin = classifyDue("ADMIN", [], [], dueOpts, extras).filter((i) => i.kind === "payroll_due");
+  assert.deepEqual(admin.map((i) => i.id), [9]);
+  assert.match(admin[0]!.title, /mañana/);
+  assert.equal(admin[0]!.href, "/nomina?periodo=9");
+  assert.equal(classifyDue("SALES", [], [], dueOpts, extras).some((i) => i.kind === "payroll_due"), false);
+  assert.equal(classifyDue("WAREHOUSE", [], [], dueOpts, extras).some((i) => i.kind === "payroll_due"), false);
+});
+
+test("GET /notifications/due: conteos atrasados o de mañana para administración y bodega, nunca para caja", () => {
+  const w = classifyDue("WAREHOUSE", [], [], dueOpts, extras).filter((i) => i.kind.startsWith("count_")).map((i) => `${i.kind}:${i.id}`);
+  assert.deepEqual(w, ["count_overdue:5", "count_due:4"]);
+  assert.equal(classifyDue("SALES", [], [], dueOpts, extras).some((i) => i.kind.startsWith("count_")), false);
+  const summary = summarizeDue(classifyDue("ADMIN", [], [], dueOpts, extras));
+  assert.match(summary, /2 pedidos por atender/);
+  assert.match(summary, /1 nómina por pagar/);
+  assert.match(summary, /2 conteos de inventario/);
+});

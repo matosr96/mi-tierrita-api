@@ -6,7 +6,9 @@
  * Qué crea: 3 usuarios `demo.*` (uno por rol, clave Demo-2026), 6 categorías, 56 productos `DEMO-…`, 5 proveedores,
  * lotes (lejanos, por vencer en 3/10/25 días y vencidos), 28 clientes, ventas de contado y a crédito de los últimos
  * 120 días con anulaciones y abonos, 3 escenarios financieros, 34 mensajes del chat (hilo, cita, fijado, privados y
- * 3 adjuntos reales guardados en la base), 3 mensajes de contacto y 5 exportaciones de reportes.
+ * 3 adjuntos reales guardados en la base), 3 mensajes de contacto, 5 exportaciones de reportes, 4 pedidos (a proveedores
+ * y de clientes, con fechas de los próximos días), 3 empleados con la quincena en curso en borrador y 2 conteos de
+ * inventario programados.
  *
  * Usa la lógica de negocio real (registerSale aplica FEFO y mueve stock y cartera; registerBatch valida vencimientos;
  * createChatMessage crea acuses y menciones). Como esa lógica fecha todo con `now()`, las fechas históricas se
@@ -15,7 +17,7 @@
  * No necesita red ni ANTHROPIC_API_KEY. El ancla de fechas es el día en que se creó `demo.admin`: al volver a correr
  * el seed otro día no aparecen ventas nuevas.
  */
-import { todayIso } from "../common/dates";
+import { addDaysIso, todayIso } from "../common/dates";
 import { db } from "../data-sources/db";
 import { registerBatch } from "../business-logic/batches/register-batch";
 import { createCategory } from "../business-logic/categories/create-category";
@@ -34,10 +36,18 @@ import { createSupplier } from "../business-logic/suppliers/create-supplier";
 import { registerPurchase } from "../business-logic/suppliers/register-purchase";
 import { createUser } from "../business-logic/users/create-user";
 import { findUserByUsername } from "../business-logic/users/find-user";
+import { createOrder } from "../business-logic/orders/create-order";
+import { createPayrollEmployee } from "../business-logic/payroll/create-employee";
+import { createPayrollPeriod } from "../business-logic/payroll/create-period";
+import { createStockCount } from "../business-logic/stock-counts/create-stock-count";
 import {
   DEMO_PASSWORD,
   SALES_DAYS,
   atBusinessTime,
+  currentFortnight,
+  demoCounts,
+  demoEmployees,
+  demoOrders,
   demoBatchPlan,
   demoCategories,
   demoChatScript,
@@ -56,7 +66,7 @@ import {
 export type SeedCounter = { created: number; skipped: number };
 export type SeedSummary = Record<string, SeedCounter>;
 
-const ORDER = ["usuarios", "categorías", "proveedores", "productos", "clientes", "lotes", "ventas", "anulaciones", "abonos", "escenarios", "adjuntos", "mensajes", "contactos", "exportaciones"];
+const ORDER = ["usuarios", "categorías", "proveedores", "productos", "clientes", "lotes", "ventas", "anulaciones", "abonos", "escenarios", "adjuntos", "mensajes", "contactos", "exportaciones", "pedidos", "empleados", "nómina", "conteos"];
 
 const idOf = async (sql: string, params: unknown[]): Promise<number | undefined> => (await db.query<{ id: number }>(sql, params)).rows[0]?.id;
 
@@ -303,6 +313,58 @@ export const runSeed = async (): Promise<SeedSummary> => {
     }
     await recordExport(userId, userRoles.get(e.username) ?? e.role, { report: e.report, format: e.format, description: e.description, filters: e.filters, summary: e.summary });
     count("exportaciones", true);
+  }
+
+  // ---------------------------------------------------------------- pedidos (nota), alrededor de hoy para verlos en el calendario
+  const nowDay = todayIso();
+  const demoSupplierIds = (await db.query<{ id: number }>(`SELECT id FROM suppliers WHERE tax_id LIKE 'DEMO-%' ORDER BY id`)).rows.map((r) => r.id);
+  const demoCustomerIds = (await db.query<{ id: number }>(`SELECT id FROM customers WHERE document_id LIKE 'DEMO-%' ORDER BY id`)).rows.map((r) => r.id);
+  const demoProductIds = (await db.query<{ id: number }>(`SELECT id FROM products WHERE sku LIKE 'DEMO-%' ORDER BY sku`)).rows.map((r) => r.id);
+  for (const o of demoOrders()) {
+    if ((await idOf(`SELECT id FROM orders WHERE note = $1`, [o.note])) !== undefined) {
+      count("pedidos", false);
+      continue;
+    }
+    const counterpart = o.kind === "SUPPLIER" ? demoSupplierIds[o.counterpartIndex % Math.max(1, demoSupplierIds.length)] : demoCustomerIds[o.counterpartIndex % Math.max(1, demoCustomerIds.length)];
+    const lines = o.lines.map((l) => ({ productId: demoProductIds[l.productIndex % Math.max(1, demoProductIds.length)]!, quantity: l.quantity }));
+    if (counterpart === undefined || lines.some((l) => l.productId === undefined)) continue;
+    await createOrder(uid("demo.admin"), "ADMIN", {
+      kind: o.kind,
+      ...(o.kind === "SUPPLIER" ? { supplierId: counterpart } : { customerId: counterpart }),
+      dueDate: addDaysIso(nowDay, o.dueInDays),
+      note: o.note,
+      lines,
+    });
+    count("pedidos", true);
+  }
+
+  // ---------------------------------------------------------------- nómina: empleados (documento) y la quincena en curso (frecuencia + inicio)
+  for (const e of demoEmployees()) {
+    if ((await idOf(`SELECT id FROM payroll_employees WHERE document_id = $1`, [e.documentId])) !== undefined) {
+      count("empleados", false);
+      continue;
+    }
+    const linked = e.username !== null && userIds.has(e.username) ? uid(e.username) : undefined;
+    const taken = linked !== undefined && (await idOf(`SELECT id FROM payroll_employees WHERE user_id = $1`, [linked])) !== undefined;
+    await createPayrollEmployee({ firstName: e.firstName, lastName: e.lastName, documentId: e.documentId, position: e.position, baseSalary: e.baseSalary, payFrequency: e.payFrequency, ...(linked !== undefined && !taken ? { userId: linked } : {}) });
+    count("empleados", true);
+  }
+  const fortnight = currentFortnight(nowDay);
+  if ((await idOf(`SELECT id FROM payroll_periods WHERE frequency = 'BIWEEKLY' AND period_start = $1`, [fortnight.periodStart])) !== undefined) count("nómina", false);
+  else {
+    await createPayrollPeriod({ frequency: "BIWEEKLY", ...fortnight }, uid("demo.admin"));
+    count("nómina", true);
+  }
+
+  // ---------------------------------------------------------------- conteos de inventario (título)
+  for (const c of demoCounts()) {
+    if ((await idOf(`SELECT id FROM stock_counts WHERE title = $1`, [c.title])) !== undefined) {
+      count("conteos", false);
+      continue;
+    }
+    const categoryId = c.categoryName === null ? null : ((await idOf(`SELECT id FROM categories WHERE name = $1`, [c.categoryName])) ?? null);
+    await createStockCount(uid("demo.bodega"), { title: c.title, scheduledDate: addDaysIso(nowDay, c.inDays), scope: categoryId === null ? "ALL" : "CATEGORY", categoryId, note: "Conteo de ejemplo" });
+    count("conteos", true);
   }
 
   const seconds = ((Date.now() - started) / 1000).toFixed(1);

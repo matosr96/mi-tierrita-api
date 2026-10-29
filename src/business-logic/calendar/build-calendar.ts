@@ -1,9 +1,11 @@
 import { BUSINESS_TIME_ZONE, addDaysIso, todayIso } from "../../common/index";
-import type { AlarmArea, AlarmRepeat, CalendarItem, CalendarPriority, CalendarResponse, CalendarStatus } from "../../models/index";
+import type { AlarmArea, AlarmRepeat, CalendarItem, CalendarPriority, CalendarResponse, CalendarStatus, ScheduledCount, UpcomingPayroll } from "../../models/index";
 import { monthEndIso } from "../../models/calendar";
 import type { Role } from "../../security/index";
 import { nextFireAt } from "../alarms/next-fire";
-import { DUE_SOON_DAYS, seesBatches, seesReceivables, type DueReceivable } from "../notifications/due-items";
+import { DUE_SOON_DAYS, ORDER_SOON_DAYS, PAYROLL_SOON_DAYS, seesBatches, seesCounts, seesPayroll, seesReceivables, type DueReceivable } from "../notifications/due-items";
+import type { DueOrder } from "../orders/list-due-orders";
+import { kindsForRole } from "../orders/order-access";
 
 /**
  * Armado puro del calendario (sin base de datos): a partir de los lotes, la cartera, las alarmas propias y sus
@@ -17,7 +19,7 @@ import { DUE_SOON_DAYS, seesBatches, seesReceivables, type DueReceivable } from 
 export const BATCH_HIGH_DAYS = 7;
 export const BATCH_MEDIUM_DAYS = 30;
 
-export const AREAS = { batch: "Lotes", receivable: "Cartera", alarm: "Alarmas", closing: "Cierres" } as const;
+export const AREAS = { batch: "Lotes", receivable: "Cartera", order: "Pedidos", payroll: "Nómina", count: "Conteos", alarm: "Alarmas", closing: "Cierres" } as const;
 
 export type CalendarBatch = { id: number; productName: string; quantityRemaining: number; expiresAt: string };
 export type CalendarAlarm = { id: number; title: string; area: AlarmArea | null; active: boolean; timeOfDay: string; repeat: AlarmRepeat; weekdays: number[]; date: string | null };
@@ -32,6 +34,10 @@ export type CalendarData = {
   overdueDays: number;
   alarms: CalendarAlarm[];
   alarmFires: CalendarAlarmFire[];
+  /** Pedidos abiertos, nómina sin pagar y conteos pendientes (opcionales: listas vacías si no aplican). */
+  orders?: DueOrder[];
+  payroll?: UpcomingPayroll[];
+  counts?: ScheduledCount[];
 };
 
 const money = (n: number): string => `$ ${Math.round(n).toLocaleString("es-CO")}`;
@@ -109,6 +115,63 @@ const alarmItems = (alarms: CalendarAlarm[], fires: CalendarAlarmFire[], now: Da
   return items;
 };
 
+const orderItems = (role: Role, orders: DueOrder[], from: string, to: string): CalendarItem[] => {
+  const kinds = kindsForRole(role);
+  return orders
+    .filter((o) => kinds.includes(o.kind) && inRange(o.dueDate, from, to))
+    .map((o): CalendarItem => {
+      const supplier = o.kind === "SUPPLIER";
+      const units = plural(o.pendingUnits, "unidad pendiente", "unidades pendientes");
+      return {
+        id: `order-${o.id}`,
+        kind: "order",
+        title: supplier ? `Llega el pedido #${o.id} de ${o.counterpartName}` : `Entregar el pedido #${o.id} a ${o.counterpartName}`,
+        detail: o.overdue ? `Atrasado ${plural(-o.daysToDue, "día", "días")} · ${units}` : `${units} · ${money(o.total)}`,
+        date: o.dueDate,
+        priority: o.overdue || o.daysToDue <= ORDER_SOON_DAYS ? "alta" : "media",
+        area: AREAS.order,
+        status: o.overdue ? "overdue" : "pending",
+        href: o.href,
+      };
+    });
+};
+
+const FREQ = { MONTHLY: "mensual", BIWEEKLY: "quincenal" } as const;
+
+const payrollItems = (periods: UpcomingPayroll[], from: string, to: string, today: string): CalendarItem[] =>
+  periods
+    .filter((p) => inRange(p.payDate, from, to))
+    .map((p): CalendarItem => {
+      const days = daysBetween(today, p.payDate);
+      const overdue = days < 0;
+      return {
+        id: `payroll-${p.id}`,
+        kind: "payroll",
+        title: `Pago de nómina ${FREQ[p.frequency]}`,
+        detail: `${overdue ? `Sin pagar hace ${plural(-days, "día", "días")} · ` : ""}Periodo ${p.periodStart} a ${p.periodEnd} · neto ${money(p.totalNet)} · ${p.status === "DRAFT" ? "en borrador" : "aprobada"}`,
+        date: p.payDate,
+        priority: overdue || days <= PAYROLL_SOON_DAYS ? "alta" : "media",
+        area: AREAS.payroll,
+        status: overdue ? "overdue" : "pending",
+        href: `/nomina?periodo=${p.id}`,
+      };
+    });
+
+const countItems = (counts: ScheduledCount[], from: string, to: string, today: string): CalendarItem[] =>
+  counts
+    .filter((c) => inRange(c.scheduledDate, from, to))
+    .map((c): CalendarItem => ({
+      id: `count-${c.id}`,
+      kind: "count",
+      title: `Conteo: ${c.title}`,
+      detail: `${c.overdue ? "Atrasado · " : c.status === "IN_PROGRESS" ? "En curso · " : ""}${c.scope === "ALL" ? "Todo el inventario" : (c.categoryName ?? "Una categoría")}`,
+      date: c.scheduledDate,
+      priority: c.overdue || c.scheduledDate === today ? "alta" : "media",
+      area: AREAS.count,
+      status: c.overdue ? "overdue" : "pending",
+      href: `/conteos?c=${c.id}`,
+    }));
+
 /** HH:MM del instante en la hora del negocio. */
 const todayTime = (d: Date): string => new Intl.DateTimeFormat("en-GB", { timeZone: BUSINESS_TIME_ZONE, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(d);
 
@@ -134,6 +197,9 @@ export const buildCalendar = (role: Role, from: string, to: string, data: Calend
   const items: CalendarItem[] = [
     ...(seesBatches(role) ? batchItems(data.batches, from, to, data.today) : []),
     ...(seesReceivables(role) ? receivableItems(data.receivables, data.overdueDays, from, to, data.today) : []),
+    ...orderItems(role, data.orders ?? [], from, to),
+    ...(seesPayroll(role) ? payrollItems(data.payroll ?? [], from, to, data.today) : []),
+    ...(seesCounts(role) ? countItems(data.counts ?? [], from, to, data.today) : []),
     ...alarmItems(data.alarms, data.alarmFires, data.now, from, to),
     ...closingItems(from, to, data.today),
   ].sort((a, b) => a.date.localeCompare(b.date) || STATUS_ORDER[a.status] - STATUS_ORDER[b.status] || PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority] || a.title.localeCompare(b.title));

@@ -125,3 +125,28 @@ test("parseCalendarRange: por defecto el mes en curso; más de 62 días o fechas
   assert.throws(() => parseCalendarRange({ from: "2026-10-10", to: "2026-10-01" }, "2026-10-29"), (e: unknown) => e instanceof DomainError && e.status === 400);
   assert.throws(() => parseCalendarRange({ from: "ayer" }, "2026-10-29"), (e: unknown) => e instanceof DomainError && e.code === "400");
 });
+
+test("buildCalendar: pedidos, nómina y conteos según el rol, con prioridad y vencidos", () => {
+  const extra: CalendarData = {
+    ...data,
+    orders: [
+      { id: 1, kind: "SUPPLIER", status: "PENDING", dueDate: "2026-10-30", counterpartName: "Agroinsumos", supplierId: 3, customerId: null, total: 100_000, lineCount: 2, pendingUnits: 12, daysToDue: 1, overdue: false, href: "/pedidos?pedido=1" },
+      { id: 2, kind: "CUSTOMER", status: "PENDING", dueDate: "2026-10-27", counterpartName: "Finca", supplierId: null, customerId: 9, total: 50_000, lineCount: 1, pendingUnits: 3, daysToDue: -2, overdue: true, href: "/pedidos?pedido=2" },
+    ],
+    payroll: [{ id: 9, frequency: "BIWEEKLY", periodStart: "2026-10-16", periodEnd: "2026-10-31", payDate: "2026-10-30", status: "DRAFT", totalNet: 2_281_000 }],
+    counts: [{ id: 5, title: "Veterinaria", scheduledDate: "2026-10-28", status: "PLANNED", scope: "CATEGORY", categoryId: 2, categoryName: "Medicina veterinaria", overdue: true }],
+  };
+  const kinds = (role: "ADMIN" | "SALES" | "WAREHOUSE") => buildCalendar(role, from, to, extra).items.filter((i) => ["order", "payroll", "count"].includes(i.kind)).map((i) => i.id).sort();
+  assert.deepEqual(kinds("ADMIN"), ["count-5", "order-1", "order-2", "payroll-9"]);
+  assert.deepEqual(kinds("WAREHOUSE"), ["count-5", "order-1"]);
+  assert.deepEqual(kinds("SALES"), ["order-2"]);
+  const cal = buildCalendar("ADMIN", from, to, extra);
+  const by = (id: string) => cal.items.find((i) => i.id === id)!;
+  assert.equal(by("order-2").status, "overdue");
+  assert.equal(by("order-2").priority, "alta");
+  assert.equal(by("order-1").priority, "alta");
+  assert.equal(by("payroll-9").area, "Nómina");
+  assert.equal(by("payroll-9").href, "/nomina?periodo=9");
+  assert.equal(by("count-5").status, "overdue");
+  assert.equal(by("count-5").href, "/conteos?c=5");
+});

@@ -194,3 +194,19 @@ test("demoClientId da un UUID estable y distinto por mensaje; el guion del chat 
   assert.ok(script.some((m) => m.to !== undefined));
   assert.deepEqual(script.filter((m) => m.attachment !== undefined).map((m) => m.attachment), ["png", "pdf", "csv"]);
 });
+
+import { currentFortnight, demoCounts, demoEmployees, demoOrders } from "../src/scripts/seed-data";
+
+test("seed: pedidos, empleados y conteos demo con claves únicas y la quincena en curso bien calculada", () => {
+  const notes = demoOrders().map((o) => o.note);
+  assert.equal(new Set(notes).size, notes.length);
+  assert.ok(demoOrders().some((o) => o.kind === "SUPPLIER") && demoOrders().some((o) => o.kind === "CUSTOMER"));
+  const docs = demoEmployees().map((e) => e.documentId);
+  assert.equal(new Set(docs).size, docs.length);
+  assert.ok(demoEmployees().every((e) => e.baseSalary > 0));
+  assert.equal(new Set(demoCounts().map((c) => c.title)).size, demoCounts().length);
+  assert.ok(demoCounts().every((c) => c.inDays >= 0));
+  assert.deepEqual(currentFortnight("2026-10-29"), { periodStart: "2026-10-16", periodEnd: "2026-10-31", payDate: "2026-10-31" });
+  assert.deepEqual(currentFortnight("2026-02-03"), { periodStart: "2026-02-01", periodEnd: "2026-02-15", payDate: "2026-02-15" });
+  assert.deepEqual(currentFortnight("2026-02-20"), { periodStart: "2026-02-16", periodEnd: "2026-02-28", payDate: "2026-02-28" });
+});

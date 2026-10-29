@@ -194,3 +194,12 @@ test("PATCH …/tita-actions: índice y estado final de la tarjeta", () => {
   assert.throws(() => parseTitaAction({ index: 0, status: "running" }), (err: unknown) => isDomainError(err) && err.code === "400");
   assert.throws(() => parseTitaAction({ status: "done" }), (err: unknown) => isDomainError(err) && err.code === "400");
 });
+
+test("Tita: pedidos para todos los roles (filtrados por tipo), nómina solo administración, conteos administración y bodega", () => {
+  const names = (r: "ADMIN" | "SALES" | "WAREHOUSE") => toolsFor(r).map((t) => t.name);
+  for (const r of ["ADMIN", "SALES", "WAREHOUSE"] as const) assert.ok(names(r).includes("pedidos_abiertos"));
+  assert.ok(names("ADMIN").includes("nomina_por_pagar"));
+  assert.ok(!names("SALES").includes("nomina_por_pagar") && !names("WAREHOUSE").includes("nomina_por_pagar"));
+  assert.ok(names("ADMIN").includes("conteos_programados") && names("WAREHOUSE").includes("conteos_programados"));
+  assert.ok(!names("SALES").includes("conteos_programados"));
+});

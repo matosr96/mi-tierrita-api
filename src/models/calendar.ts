@@ -3,10 +3,11 @@ import { isIsoDate } from "../common/validate";
 
 /**
  * Calendario reutilizable (brief de octubre de 2026, punto 31): un solo listado con fecha por rol. Lotes por vencer y
- * vencidos (ADMIN y WAREHOUSE), cobros de cartera (ADMIN y SALES), alarmas propias y cierres de mes. «Pedidos»,
- * «nómina» y «conteos de inventario» no existen en el sistema y quedan pendientes.
+ * vencidos (ADMIN y WAREHOUSE), cobros de cartera (ADMIN y SALES), pedidos abiertos (a proveedor: ADMIN y WAREHOUSE;
+ * de cliente: ADMIN y SALES), pagos de nómina sin hacer (ADMIN), conteos de inventario pendientes (ADMIN y WAREHOUSE),
+ * alarmas propias y cierres de mes.
  */
-export const CALENDAR_KINDS = ["batch", "receivable", "alarm", "closing"] as const;
+export const CALENDAR_KINDS = ["batch", "receivable", "alarm", "closing", "order", "payroll", "count"] as const;
 export type CalendarKind = (typeof CALENDAR_KINDS)[number];
 
 export const CALENDAR_PRIORITIES = ["alta", "media", "baja"] as const;
@@ -24,7 +25,7 @@ export type CalendarItem = {
   /** Fecha del ítem (YYYY-MM-DD, hora del negocio). */
   date: string;
   priority: CalendarPriority;
-  /** Área del sistema, en texto (Lotes, Cartera, Alarmas, Cierres). */
+  /** Área del sistema, en texto (Lotes, Cartera, Pedidos, Nómina, Conteos, Alarmas, Cierres). */
   area: string;
   status: CalendarStatus;
   /** Pantalla de la app a la que lleva. */

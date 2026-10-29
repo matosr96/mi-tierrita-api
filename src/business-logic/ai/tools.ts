@@ -12,6 +12,9 @@ import { inventoryReport, receivablesReport, salesReport } from "../reports/inde
 import { getSale, listSales } from "../sales/index";
 import { listSuppliers, findSupplierById } from "../suppliers/index";
 import { getScenario, listScenarios } from "../financial/index";
+import { listDueOrders } from "../orders/list-due-orders";
+import { listUpcomingPayroll } from "../payroll/list-upcoming-payroll";
+import { listScheduledCounts } from "../stock-counts/list-scheduled-counts";
 import { computeInsights } from "./insights";
 import { ACTION_TOOLS } from "./actions";
 import { ALL, int, isoDate, obj, page, str, type ToolContext, type ToolDef } from "./tool-kit";
@@ -216,6 +219,52 @@ const READ_TOOLS: Record<string, ToolDef> = {
     run: async (_i, ctx) => {
       const t = await chatTeam(ctx.userId);
       return { personas: t.members.map((m) => ({ id: m.id, nombre: `${m.firstName} ${m.lastName}`, rol: m.role, enLinea: m.online })) };
+    },
+  },
+  pedidos_abiertos: {
+    roles: ALL,
+    label: "Pedidos",
+    spec: {
+      name: "pedidos_abiertos",
+      description:
+        "Pedidos sin cerrar con fecha de llegada o de entrega dentro de N días, incluidos los atrasados: a proveedores (administración y bodega) y encargos de clientes (administración y caja). Solo vienen los tipos que esta cuenta maneja.",
+      input_schema: obj({ dias: { type: "integer", description: "Ventana en días hacia adelante (1 a 120). Por defecto 30." } }),
+    },
+    run: async (i, ctx) => {
+      const days = Math.min(Math.max(int(i["dias"]) ?? 30, 1), 120);
+      const orders = await listDueOrders(ctx.role, addDaysIso(todayIso(), days));
+      return {
+        total: orders.length,
+        pedidos: orders.map((o) => ({ id: o.id, tipo: o.kind === "SUPPLIER" ? "a proveedor" : "de cliente", con: o.counterpartName, fecha: o.dueDate, estado: o.status, atrasado: o.overdue, diasParaLaFecha: o.daysToDue, unidadesPendientes: o.pendingUnits, total: o.total, enlace: o.href })),
+      };
+    },
+  },
+  nomina_por_pagar: {
+    roles: [Roles.ADMIN],
+    label: "Nómina",
+    spec: {
+      name: "nomina_por_pagar",
+      description: "Periodos de nómina sin pagar (borrador o aprobados) con fecha de pago dentro de N días, incluidos los atrasados, con el neto total calculado por el sistema. Liquidación simplificada: no es nómina electrónica.",
+      input_schema: obj({ dias: { type: "integer", description: "Ventana en días hacia adelante (1 a 120). Por defecto 31." } }),
+    },
+    run: async (i) => {
+      const days = Math.min(Math.max(int(i["dias"]) ?? 31, 1), 120);
+      const periods = await listUpcomingPayroll(addDaysIso(todayIso(), days));
+      return { periodos: periods.map((p) => ({ id: p.id, frecuencia: p.frequency === "MONTHLY" ? "mensual" : "quincenal", desde: p.periodStart, hasta: p.periodEnd, fechaDePago: p.payDate, estado: p.status === "DRAFT" ? "borrador" : "aprobada", netoTotal: p.totalNet, enlace: `/nomina?periodo=${p.id}` })) };
+    },
+  },
+  conteos_programados: {
+    roles: [Roles.ADMIN, Roles.WAREHOUSE],
+    label: "Conteos de inventario",
+    spec: {
+      name: "conteos_programados",
+      description: "Conteos de inventario programados o en curso con fecha dentro de N días, incluidos los atrasados, con su alcance (todo el inventario o una categoría).",
+      input_schema: obj({ dias: { type: "integer", description: "Ventana en días hacia adelante (1 a 120). Por defecto 30." } }),
+    },
+    run: async (i) => {
+      const days = Math.min(Math.max(int(i["dias"]) ?? 30, 1), 120);
+      const counts = await listScheduledCounts(addDaysIso(todayIso(), days));
+      return { conteos: counts.map((c) => ({ id: c.id, titulo: c.title, fecha: c.scheduledDate, estado: c.status === "PLANNED" ? "programado" : "en curso", atrasado: c.overdue, alcance: c.scope === "ALL" ? "todo el inventario" : (c.categoryName ?? "una categoría"), enlace: `/conteos?c=${c.id}` })) };
     },
   },
   recomendaciones: {

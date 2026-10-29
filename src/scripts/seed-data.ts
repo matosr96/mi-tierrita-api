@@ -631,3 +631,40 @@ export const demoReportExports = (anchor: string): DemoReportExport[] => {
     { username: "demo.caja", role: "SALES", report: "sales", format: "xlsx", description: `Ventas de la semana al ${anchor}`, filters: { from: addDaysIso(anchor, -6), to: anchor, groupBy: "day" }, summary: { note: "Reporte de ejemplo" } },
   ];
 };
+
+/* ---------- Pedidos, nómina y conteos de inventario (fechas alrededor del día en que se corre el seed) ---------- */
+
+/** Pedido demo: la nota es la clave natural (idempotencia). Los productos, proveedores y clientes se toman de los demo. */
+export type DemoOrder = { note: string; kind: "SUPPLIER" | "CUSTOMER"; dueInDays: number; lines: { productIndex: number; quantity: number }[]; counterpartIndex: number };
+
+export const demoOrders = (): DemoOrder[] => [
+  { note: "[Demo] Reposición de concentrados de la semana", kind: "SUPPLIER", dueInDays: 1, counterpartIndex: 0, lines: [{ productIndex: 0, quantity: 20 }, { productIndex: 1, quantity: 12 }] },
+  { note: "[Demo] Pedido de semillas para la siembra", kind: "SUPPLIER", dueInDays: 6, counterpartIndex: 2, lines: [{ productIndex: 20, quantity: 15 }] },
+  { note: "[Demo] Encargo de pollito de engorde para la finca", kind: "CUSTOMER", dueInDays: 2, counterpartIndex: 1, lines: [{ productIndex: 30, quantity: 50 }] },
+  { note: "[Demo] Encargo de vitaminas y comederos", kind: "CUSTOMER", dueInDays: 9, counterpartIndex: 3, lines: [{ productIndex: 10, quantity: 4 }, { productIndex: 50, quantity: 2 }] },
+];
+
+/** Empleados demo de nómina (salarios de ejemplo, no valores legales). `username` vincula la cuenta demo si existe. */
+export type DemoEmployee = { documentId: string; firstName: string; lastName: string; position: string; baseSalary: number; payFrequency: "MONTHLY" | "BIWEEKLY"; username: string | null };
+
+export const demoEmployees = (): DemoEmployee[] => [
+  { documentId: "DEMO-NOM-01", firstName: "Luis Fernando", lastName: "Ortega", position: "Auxiliar de bodega", baseSalary: 1_800_000, payFrequency: "BIWEEKLY", username: null },
+  { documentId: "DEMO-NOM-02", firstName: "Luisa", lastName: "Demo", position: "Secretaria de caja", baseSalary: 1_900_000, payFrequency: "BIWEEKLY", username: "demo.caja" },
+  { documentId: "DEMO-NOM-03", firstName: "Jairo", lastName: "Demo", position: "Encargado de bodega", baseSalary: 1_950_000, payFrequency: "BIWEEKLY", username: "demo.bodega" },
+];
+
+/** Quincena en curso para un día dado: del 1 al 15 o del 16 a fin de mes; se paga el último día del periodo. */
+export const currentFortnight = (today: string): { periodStart: string; periodEnd: string; payDate: string } => {
+  const [y, m, d] = today.split("-").map(Number) as [number, number, number];
+  const month = `${y}-${String(m).padStart(2, "0")}`;
+  const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  return d <= 15 ? { periodStart: `${month}-01`, periodEnd: `${month}-15`, payDate: `${month}-15` } : { periodStart: `${month}-16`, periodEnd: `${month}-${lastDay}`, payDate: `${month}-${lastDay}` };
+};
+
+/** Conteos demo: el título es la clave natural. `categoryName` null = todo el inventario. */
+export type DemoCount = { title: string; inDays: number; categoryName: string | null };
+
+export const demoCounts = (): DemoCount[] => [
+  { title: "[Demo] Conteo de medicina veterinaria", inDays: 2, categoryName: "Medicina veterinaria" },
+  { title: "[Demo] Conteo general de bodega", inDays: 7, categoryName: null },
+];

@@ -16,7 +16,7 @@ export type DraftRequest = { kind: DraftKind; customerId?: number | undefined; c
 export const MAX_TURNS = 20;
 
 /** Pantallas de la app que Tita puede recibir como contexto (la ruta sin parámetros). */
-export const SCREENS = ["inicio", "inventario", "lotes", "ventas", "clientes", "proveedores", "finanzas", "reportes", "tita", "chat", "contactos", "usuarios", "auditoria", "alarmas", "perfil"] as const;
+export const SCREENS = ["inicio", "inventario", "lotes", "ventas", "clientes", "proveedores", "finanzas", "reportes", "tita", "chat", "contactos", "usuarios", "auditoria", "alarmas", "perfil", "pedidos", "nomina", "conteos", "calendario", "biblioteca"] as const;
 export type Screen = (typeof SCREENS)[number];
 
 /**

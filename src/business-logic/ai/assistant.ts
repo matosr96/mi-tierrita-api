@@ -28,6 +28,11 @@ export const SCREEN_CONTEXT: Record<Screen, string> = {
   usuarios: "Usuarios y roles",
   auditoria: "Auditoría",
   alarmas: "Alarmas (avisos programados)",
+  pedidos: "Pedidos (a proveedores y de clientes, con fecha de llegada o entrega)",
+  nomina: "Nómina (empleados y periodos de pago; liquidación simplificada)",
+  conteos: "Conteos de inventario (programar, contar y ajustar existencias)",
+  calendario: "Calendario (lotes, cobros, pedidos, nómina, conteos, alarmas y cierres)",
+  biblioteca: "Biblioteca de documentos y enlaces",
   perfil: "Mi perfil",
 };
 

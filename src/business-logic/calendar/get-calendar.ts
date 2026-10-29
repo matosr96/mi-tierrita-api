@@ -4,16 +4,19 @@ import type { CalendarResponse } from "../../models/index";
 import type { Role } from "../../security/index";
 import { ALARM_COLUMNS } from "../alarms/find-alarm";
 import { DEFAULT_OVERDUE_DAYS } from "../customers/get-customer-balance";
-import { seesBatches, seesReceivables } from "../notifications/due-items";
+import { seesBatches, seesCounts, seesPayroll, seesReceivables } from "../notifications/due-items";
+import { listDueOrders } from "../orders/list-due-orders";
+import { listUpcomingPayroll } from "../payroll/list-upcoming-payroll";
+import { listScheduledCounts } from "../stock-counts/list-scheduled-counts";
 import { receivablesReport } from "../reports/receivables-report";
 import { buildCalendar, type CalendarAlarm, type CalendarAlarmFire, type CalendarBatch } from "./build-calendar";
 
 /**
- * Calendario de una persona para un rango: consulta lo que su rol puede ver (lotes, cartera), sus alarmas y sus
- * disparos, y delega el armado a `buildCalendar`. La regla de «vencido» de la cartera es la del reporte.
+ * Calendario de una persona para un rango: consulta lo que su rol puede ver (lotes, cartera, pedidos, nómina,
+ * conteos), sus alarmas y sus disparos, y delega el armado a `buildCalendar`. La regla de «vencido» de la cartera es la del reporte.
  */
 export const getCalendar = async (userId: number, role: Role, from: string, to: string, now: Date = new Date()): Promise<CalendarResponse> => {
-  const [batches, receivables, { rows: alarms }, { rows: alarmFires }] = await Promise.all([
+  const [batches, receivables, { rows: alarms }, { rows: alarmFires }, orders, payroll, counts] = await Promise.all([
     seesBatches(role)
       ? db
           .query<CalendarBatch>(
@@ -34,6 +37,9 @@ export const getCalendar = async (userId: number, role: Role, from: string, to: 
        ORDER BY f.fired_at`,
       [userId, from, to],
     ),
+    listDueOrders(role, to, from),
+    seesPayroll(role) ? listUpcomingPayroll(to) : Promise.resolve([]),
+    seesCounts(role) ? listScheduledCounts(to, { fromDate: from }) : Promise.resolve([]),
   ]);
-  return buildCalendar(role, from, to, { today: todayIso(now), now, batches, receivables, overdueDays: DEFAULT_OVERDUE_DAYS, alarms, alarmFires });
+  return buildCalendar(role, from, to, { today: todayIso(now), now, batches, receivables, overdueDays: DEFAULT_OVERDUE_DAYS, alarms, alarmFires, orders, payroll, counts });
 };
