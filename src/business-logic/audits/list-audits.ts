@@ -2,6 +2,9 @@ import { toPageResponse, type PageRequest, type PageResponse } from "../../commo
 import { db } from "../../data-sources/index";
 import { toAuditResponse, type AuditListFilter, type AuditResponse, type AuditRow } from "../../models/index";
 
+/** Columnas de una escritura con el detalle del registro (entity, entityId, changes). */
+export const AUDIT_COLUMNS = `a.id, a.user_id AS "userId", u.username, a.method, a.resource, a.ai_suggested AS "aiSuggested", a.entity, a.entity_id AS "entityId", a.changes, a.created_at AS "createdAt"`;
+
 /** CU-18 / RF-07.2: historial de escrituras con filtros por usuario, recurso y rango de fechas. */
 export const listAudits = async (page: PageRequest, filter: AuditListFilter): Promise<PageResponse<AuditResponse>> => {
   const conditions: string[] = [];
@@ -27,7 +30,7 @@ export const listAudits = async (page: PageRequest, filter: AuditListFilter): Pr
   const [{ rows: countRows }, { rows }] = await Promise.all([
     db.query<{ count: number }>(`SELECT count(*)::int AS count ${from} ${where}`, params),
     db.query<AuditRow>(
-      `SELECT a.id, a.user_id AS "userId", u.username, a.method, a.resource, a.ai_suggested AS "aiSuggested", a.created_at AS "createdAt"
+      `SELECT ${AUDIT_COLUMNS}
        ${from} ${where} ORDER BY a.created_at DESC, a.id DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
       [...params, page.limit, page.offset],
     ),
