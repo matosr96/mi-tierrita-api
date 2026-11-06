@@ -208,6 +208,10 @@ export type SimulatorResult = {
     total: number;
     annualDepreciation: number;
     annualAmortization: number;
+    /** Depreciación acumulada en el horizonte (suma de la tabla): total de la tabla de activos fijos. */
+    depreciationTotal: number;
+    /** Amortización de diferidos acumulada en el horizonte (suma de la tabla). */
+    amortizationTotal: number;
     schedule: DepreciationYear[];
   };
   financing: {
@@ -318,6 +322,8 @@ const core = (input: SimulatorInput, shocks: Shocks = NO_SHOCKS) => {
       deferredNetValue: Math.max(0, inv.deferred - annualAmortization * Math.min(y, inv.deferredAmortizationYears)),
     });
   }
+  const depreciationTotal = schedule.reduce((acc, s) => acc + s.depreciation, 0);
+  const amortizationTotal = schedule.reduce((acc, s) => acc + s.amortization, 0);
   const salvage = schedule[H - 1]?.netBookValue ?? 0;
 
   // 6. Flujo de caja libre del proyecto (sin deuda)
@@ -366,7 +372,7 @@ const core = (input: SimulatorInput, shocks: Shocks = NO_SHOCKS) => {
     market: { monthlyDemand, annualDemand, gdpTerm, unemploymentTerm, growth, years: costYears.map((x) => ({ year: x.year, demand: demandOf(x.year) })) },
     competition: { competitors, othersShare, marketShare, monthlyUnits: monthlyDemand * marketShare, annualUnits: annualDemand * marketShare },
     costs: { years: costYears, unitCost, price: basePrice, marginOnCost: k.marginOnCost, marginOnPrice: basePrice > 0 ? (basePrice - unitCost) / basePrice : 0 },
-    investment: { items, total, annualDepreciation, annualAmortization, schedule },
+    investment: { items, total, annualDepreciation, annualAmortization, depreciationTotal, amortizationTotal, schedule },
     cashFlow: { years: cashYears, flows },
     indicators,
     financingInput: f,

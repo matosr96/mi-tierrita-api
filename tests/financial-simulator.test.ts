@@ -91,6 +91,9 @@ test("Inversión de $94,5 M con depreciación a 10 años y diferidos a 5: cargo 
   assert.equal(r.investment.annualDepreciation, 6_200_000);
   assert.equal(r.investment.annualAmortization, 1_300_000);
   assert.deepEqual(r.investment.schedule.map((s) => s.charge), [7_500_000, 7_500_000, 7_500_000, 7_500_000, 7_500_000]);
+  // Totales de cada tabla por separado (depreciación de activos fijos y amortización de diferidos), para no sumarlos en la app.
+  assert.equal(r.investment.depreciationTotal, 31_000_000);
+  assert.equal(r.investment.amortizationTotal, 6_500_000);
   assert.equal(r.investment.schedule[4]?.netBookValue, 31_000_000);
   assert.equal(r.investment.schedule[4]?.deferredNetValue, 0);
   assert.equal(r.cashFlow.years[4]?.salvage, 31_000_000, "salvamento = valor neto en libros");
