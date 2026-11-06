@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { isDomainError } from "../src/common/errors";
 import { parseAssistantChat, parseDraftRequest, parseInvoiceImage } from "../src/models/ai";
 import { runTool, toolsFor } from "../src/business-logic/ai/tools";
+import type { Proposal } from "../src/business-logic/ai/tool-kit";
 import { DRAFT_ROLES } from "../src/business-logic/ai/drafts";
 import { aiEnabled, requireAi } from "../src/business-logic/ai/client";
 
@@ -72,6 +73,24 @@ test("una acción con datos inválidos devuelve los campos a pedir y no deja tar
   const out = await runTool("crear_cliente", { name: "Pedro" }, ctx);
   assert.match(out.content, /documentId/);
   assert.equal(ctx.proposals.length, 0);
+});
+
+test("generar_reporte deja lista la tarjeta del informe del proyecto (Reportes → Informe) solo para ADMIN", async () => {
+  const sales = { role: "SALES" as const, userId: 9, proposals: [] as Proposal[], sources: [] };
+  const denied = await runTool("generar_reporte", { tipo: "scenario" }, sales);
+  assert.equal(denied.isError, true);
+  assert.equal(sales.proposals.length, 0);
+  // Sin proyectoId se propone el ejemplo de la ampliación (no consulta la base).
+  const admin = { role: "ADMIN" as const, userId: 1, proposals: [] as Proposal[], sources: [] };
+  const out = await runTool("generar_reporte", { tipo: "scenario" }, admin);
+  assert.equal(out.isError, false);
+  const card = admin.proposals[0];
+  assert.equal(card?.type, "report");
+  if (card?.type === "report") {
+    assert.equal(card.report, "scenario");
+    assert.equal(card.title, "Informe del proyecto");
+    assert.equal(card.params["proyecto"], "ejemplo");
+  }
 });
 
 test("los adjuntos de la pregunta se validan (tipo, base64 limpio)", () => {

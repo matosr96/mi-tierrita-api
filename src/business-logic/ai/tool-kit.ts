@@ -17,7 +17,8 @@ export type Handoff =
 
 export type ActionRequest = { method: "POST" | "PUT" | "PATCH" | "DELETE"; path: string; body?: Record<string, unknown> };
 
-export type ReportKind = "sales" | "inventory" | "receivables";
+/** `scenario` es el informe del proyecto del simulador (Reportes → Informe del proyecto). */
+export type ReportKind = "sales" | "inventory" | "receivables" | "scenario";
 
 export type Proposal =
   | { type: "action"; kind: string; title: string; lines: string[]; warnings: string[]; confirmLabel: string; request: ActionRequest; handoff?: Handoff }

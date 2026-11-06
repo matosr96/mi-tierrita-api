@@ -22,6 +22,7 @@ import { findProductById, listProducts } from "../products/index";
 import { findCustomerById, getCustomerBalance } from "../customers/index";
 import { findSupplierById } from "../suppliers/index";
 import { getSale } from "../sales/index";
+import { getProject } from "../financial/index";
 import { ALL, clean, int, isoDate, num, obj, page, propose, str, validate, type ToolDef } from "./tool-kit";
 
 const money = (n: number) => `$ ${Math.round(n).toLocaleString("es-CO")}`;
@@ -495,12 +496,24 @@ export const ACTION_TOOLS: Record<string, ToolDef> = {
     spec: {
       name: "generar_reporte",
       description:
-        "Deja listo un reporte para abrir, imprimir en PDF o descargar en Excel: sales (ventas entre fechas, por día o por producto; ADMIN y SALES), inventory (inventario valorizado y vencimientos; solo ADMIN) o receivables (cartera; solo ADMIN).",
-      input_schema: obj({ tipo: { type: "string", enum: ["sales", "inventory", "receivables"] }, desde: { type: "string" }, hasta: { type: "string" }, agruparPor: { type: "string", enum: ["day", "product"] }, dias: { type: "integer" } }, ["tipo"]),
+        "Deja listo un reporte para abrir, imprimir en PDF o descargar en Excel: sales (ventas entre fechas, por día o por producto; ADMIN y SALES), inventory (inventario valorizado y vencimientos; solo ADMIN), receivables (cartera; solo ADMIN) o scenario (informe del proyecto del simulador financiero para un proyecto guardado, con proyectoId de escenarios_financieros, o el ejemplo de la ampliación sin proyectoId; solo ADMIN).",
+      input_schema: obj(
+        { tipo: { type: "string", enum: ["sales", "inventory", "receivables", "scenario"] }, desde: { type: "string" }, hasta: { type: "string" }, agruparPor: { type: "string", enum: ["day", "product"] }, dias: { type: "integer" }, proyectoId: { type: "integer" } },
+        ["tipo"],
+      ),
     },
     run: async (i, ctx) => {
-      const tipo = i["tipo"] === "inventory" || i["tipo"] === "receivables" ? i["tipo"] : "sales";
+      const tipo = i["tipo"] === "inventory" || i["tipo"] === "receivables" || i["tipo"] === "scenario" ? i["tipo"] : "sales";
       if (tipo !== "sales" && ctx.role !== Roles.ADMIN) return { error: "Ese reporte no está disponible para su cuenta" };
+      if (tipo === "scenario") {
+        // Reportes → Informe del proyecto: el informe se genera allí con el escenario elegido (`?proyecto=<id|ejemplo>`).
+        const projectId = int(i["proyectoId"]);
+        if (projectId === undefined) {
+          return propose(ctx, { type: "report", report: "scenario", title: "Informe del proyecto", lines: ["Ejemplo de la ampliación del local (cifras de ejemplo)"], params: { proyecto: "ejemplo" } });
+        }
+        const p = await getProject(projectId); // 715 si no existe
+        return propose(ctx, { type: "report", report: "scenario", title: "Informe del proyecto", lines: [`${p.name} · VPN ${Math.round(p.result.indicators.npv).toLocaleString("es-CO")} COP`], params: { proyecto: projectId } });
+      }
       if (tipo === "sales") {
         const to = isoDate(i["hasta"]) ?? todayIso();
         const from = isoDate(i["desde"]) ?? addDaysIso(to, -29);
