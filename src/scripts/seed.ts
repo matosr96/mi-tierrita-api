@@ -3,7 +3,8 @@
  *   pnpm db:seed            → crea los datos demo que falten; los que ya existen se dejan igual (idempotente)
  *   SEED_ON_START=true      → el servidor lo ejecuta al arrancar, después de db.ping() (ver server/index.ts)
  *
- * Qué crea: 3 usuarios `demo.*` (uno por rol, clave Demo-2026), 6 categorías, 56 productos `DEMO-…`, 5 proveedores,
+ * Qué crea: 3 usuarios `demo.*` (uno por rol, clave Demo-2026), las 6 líneas de la página pública (`product-lines.ts`,
+ * con código, descripción y subfamilias), 56 productos `DEMO-…`, 5 proveedores,
  * lotes (lejanos, por vencer en 3/10/25 días y vencidos), 28 clientes, ventas de contado y a crédito de los últimos
  * 120 días con anulaciones y abonos, 3 escenarios financieros, 2 proyectos del simulador, 34 mensajes del chat (hilo, cita, fijado, privados y
  * 3 adjuntos reales guardados en la base), 3 mensajes de contacto, 5 exportaciones de reportes, 4 pedidos (a proveedores
@@ -50,7 +51,7 @@ import {
   demoEmployees,
   demoOrders,
   demoBatchPlan,
-  demoCategories,
+  demoLines,
   demoChatScript,
   demoClientId,
   demoContactMessages,
@@ -107,16 +108,26 @@ export const runSeed = async (): Promise<SeedSummary> => {
   const anchor = todayIso(anchorDate ?? new Date());
   const catalogDate = todayIso(new Date(atBusinessTime(anchor, 12, 0).getTime() - (SALES_DAYS + 12) * 86_400_000));
 
-  // ---------------------------------------------------------------- categorías (nombre) y proveedores (NIT)
+  // ---------------------------------------------------------------- líneas (código, luego nombre) y proveedores (NIT)
+  // Las seis líneas de la página pública (migración 0018). Si ya existe la fila con ese código se respeta tal cual
+  // (el administrador pudo renombrarla); si solo existe por nombre (base anterior a la migración) se le completa el
+  // código, la descripción y las subfamilias; si no existe, se crea con todo.
   const categoryIds = new Map<string, number>();
-  for (const name of demoCategories()) {
-    let id = await idOf(`SELECT id FROM categories WHERE lower(name) = lower($1)`, [name]);
+  for (const line of demoLines()) {
+    let id = await idOf(`SELECT id FROM categories WHERE code = $1`, [line.code]);
     if (id === undefined) {
-      id = (await createCategory({ name })).id;
+      id = await idOf(`SELECT id FROM categories WHERE lower(name) = lower($1)`, [line.name]);
+      if (id !== undefined) {
+        await db.query(`UPDATE categories SET code = $2, description = COALESCE(description, $3), tags = CASE WHEN cardinality(tags) = 0 THEN $4::text[] ELSE tags END WHERE id = $1`, [id, line.code, line.description, line.tags]);
+      }
+    }
+    if (id === undefined) {
+      id = (await createCategory({ name: line.name, description: line.description, tags: [...line.tags] })).id;
+      await db.query(`UPDATE categories SET code = $2 WHERE id = $1`, [id, line.code]);
       await backdate("categories", id, catalogDate);
       count("categorías", true);
     } else count("categorías", false);
-    categoryIds.set(name, id);
+    categoryIds.set(line.name, id);
   }
   const supplierIds = new Map<string, number>();
   for (const s of demoSuppliers()) {

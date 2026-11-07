@@ -7,10 +7,13 @@ export const updateCategory = async (id: number, input: UpdateCategoryRequest): 
   try {
     const { rows } = await db.query<CategoryRow>(
       `UPDATE categories
-         SET name = COALESCE($2, name), active = COALESCE($3, active)
+         SET name        = COALESCE($2, name),
+             active      = COALESCE($3, active),
+             description = CASE WHEN $4::boolean THEN $5 ELSE description END,
+             tags        = COALESCE($6::text[], tags)
        WHERE id = $1
        RETURNING ${CATEGORY_COLUMNS}`,
-      [id, input.name ?? null, input.active ?? null],
+      [id, input.name ?? null, input.active ?? null, input.description !== undefined, input.description ?? null, input.tags ?? null],
     );
     const updated = rows[0];
     if (updated === undefined) throw domainError(ErrorCodes.CATEGORY_NOT_FOUND);

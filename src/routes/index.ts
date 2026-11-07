@@ -2,7 +2,7 @@ import { Router } from "express";
 import { authenticate } from "../security/index";
 import { authPublicRouter, authRouter } from "./auth";
 import { usersRouter } from "./users";
-import { categoriesRouter } from "./categories";
+import { categoriesPublicRouter, categoriesRouter } from "./categories";
 import { productsRouter } from "./products";
 import { batchesRouter } from "./batches";
 import { suppliersRouter } from "./suppliers";
@@ -40,6 +40,7 @@ export const apiRouter = Router();
 apiRouter.use("/auth", authPublicRouter);
 apiRouter.use("/contact", contactPublicRouter);
 apiRouter.use("/reports", reportsPublicRouter);
+apiRouter.use("/categories", categoriesPublicRouter);
 
 // --- a partir de aquí, autenticación obligatoria ---
 apiRouter.use(authenticate);

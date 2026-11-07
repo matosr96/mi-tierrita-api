@@ -80,7 +80,7 @@ Qué crea y cómo se reconoce (sin columnas nuevas):
 | Datos | Cantidad | Marca |
 |---|---|---|
 | Usuarios `demo.admin` (ADMIN), `demo.caja` (SALES), `demo.bodega` (WAREHOUSE) | 3 | usuario `demo.*`; clave de los tres: `Demo-2026` |
-| Categorías (alimentos balanceados, medicina veterinaria, semillas y fertilizantes, aves de corral, agroquímicos, ferretería agrícola) | 6 | por nombre |
+| Líneas de la página pública (Alimentos balanceados, Medicina veterinaria, Semillas y fertilizantes, Aves de corral, Productos agroquímicos, Ferretería agrícola) con descripción y subfamilias | 6 | por `code` 01…06, o por nombre si la base es anterior a la migración 0018 (entonces se les completa el código) |
 | Productos con precios de compra y venta | 56 | SKU `DEMO-XXX-NNN` |
 | Proveedores | 5 | NIT `DEMO-…` |
 | Lotes: lejanos (cubren las ventas), por vencer en 3, 10 y 25 días y ya vencidos | ~78 | producto `DEMO-…` |
@@ -226,7 +226,7 @@ agrega 5 (respuesta en dos pasos e historial de Tita) y `0008_alarmas_avisos_pus
 | Salud y documentación | `GET /health`, `GET /docs`, `GET /docs/openapi.json` | — |
 | Autenticación | `POST /auth/signin`, `POST /auth/signout`, `GET /auth/me` | CU-01, CU-02 |
 | Usuarios | `POST/GET /users`, `GET /users/:id`, `PUT /users/me/password`, `PUT /users/me` (perfil propio), `PUT /users/me/avatar` (foto propia: binario JPEG/PNG/WebP ≤ 1 MB, la app la reduce a 256×256), `DELETE /users/me/avatar`, `GET /users/:id/avatar` (cualquier rol; 691 si no tiene; `Cache-Control: private, max-age=300` y `ETag` por `avatarUpdatedAt`). `GET /users/directory` (cualquier rol; brief 2.5, punto 30): directorio de personas con `id`, nombre, `username`, `role`, `email`, `phone`, `hasAvatar`, `avatarUpdatedAt`, `online` y `lastSeenAt` (misma regla de presencia del chat: petición en los últimos 90 s sin cierre de sesión posterior) y `active`; las cuentas inactivas solo las ve ADMIN, marcadas. Toda respuesta de usuario (incluido `GET /auth/me`) trae `hasAvatar` y `avatarUpdatedAt` | CU-03, CU-04, prototipo 15, brief 2.5 (34) |
-| Categorías | `POST/GET /categories`, `PUT/DELETE /categories/:id` | — |
+| Categorías | `POST/GET /categories`, `PUT/DELETE /categories/:id` (desde la migración `0018_lineas_publicas` cada categoría trae `code`, `description` y `tags`; `POST` y `PUT` aceptan `description` y `tags`; el listado va por código y luego por nombre), `GET /categories/public` (**público**, 60 por minuto por IP, `Cache-Control` 5 min: las categorías activas con código, solo `code`, `name`, `description`, `tags`; lo lee la página pública para que sus líneas sean las mismas del inventario). Las seis líneas iniciales viven en `business-logic/categories/product-lines.ts`; la fuente en ejecución es la tabla. `GET /categories/public` no estaba en el documento 06 | — / extensión |
 | Productos e inventario | `POST/GET /products`, `GET/PUT/DELETE /products/:id`, `POST/GET /products/:id/batches`, `GET /batches/expiring` | CU-05, CU-06, CU-07 |
 | Ventas | `POST/GET /sales`, `GET /sales/:id`, `POST /sales/:id/void` | CU-08 (FEFO), CU-09, CU-10, CU-11, RF-03.4 |
 | Clientes y cartera | `POST/GET /customers`, `GET/PUT /customers/:id`, `GET /customers/:id/balance`, `POST /customers/:id/payments` | CU-12 |

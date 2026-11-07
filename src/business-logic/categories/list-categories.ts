@@ -1,7 +1,7 @@
 import { toPageResponse, type PageRequest, type PageResponse } from "../../common/index";
 import { db } from "../../data-sources/index";
 import { toCategoryResponse, type CategoryResponse, type CategoryRow } from "../../models/index";
-import { CATEGORY_COLUMNS } from "./find-category";
+import { CATEGORY_COLUMNS, CATEGORY_ORDER } from "./find-category";
 
 export const listCategories = async (
   page: PageRequest,
@@ -13,7 +13,7 @@ export const listCategories = async (
   const params: unknown[] = [...filterParams, page.limit, page.offset];
   const [{ rows: countRows }, { rows }] = await Promise.all([
     db.query<{ count: number }>(`SELECT count(*)::int AS count FROM categories ${where}`, filterParams),
-    db.query<CategoryRow>(`SELECT ${CATEGORY_COLUMNS} FROM categories ${where} ORDER BY name LIMIT $${filterParams.length + 1} OFFSET $${filterParams.length + 2}`, params),
+    db.query<CategoryRow>(`SELECT ${CATEGORY_COLUMNS} FROM categories ${where} ${CATEGORY_ORDER} LIMIT $${filterParams.length + 1} OFFSET $${filterParams.length + 2}`, params),
   ]);
   return toPageResponse(page, countRows[0]?.count ?? 0, rows.map(toCategoryResponse));
 };

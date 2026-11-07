@@ -3,11 +3,12 @@ import { db, isUniqueViolation } from "../../data-sources/index";
 import { toCategoryResponse, type CategoryResponse, type CategoryRow, type CreateCategoryRequest } from "../../models/index";
 import { CATEGORY_COLUMNS } from "./find-category";
 
+/** Una categoría nueva nace interna (sin `code`): no sale en la página pública. */
 export const createCategory = async (input: CreateCategoryRequest): Promise<CategoryResponse> => {
   try {
     const { rows } = await db.query<CategoryRow>(
-      `INSERT INTO categories (name) VALUES ($1) RETURNING ${CATEGORY_COLUMNS}`,
-      [input.name],
+      `INSERT INTO categories (name, description, tags) VALUES ($1, $2, $3::text[]) RETURNING ${CATEGORY_COLUMNS}`,
+      [input.name, input.description ?? null, input.tags ?? []],
     );
     const row = rows[0];
     if (row === undefined) throw new Error("INSERT de categoría no devolvió fila");

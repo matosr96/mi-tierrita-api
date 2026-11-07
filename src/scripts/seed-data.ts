@@ -11,6 +11,7 @@
 import { createHash } from "node:crypto";
 import { deflateSync } from "node:zlib";
 import { addDaysIso } from "../common/dates";
+import { PRODUCT_LINES, type ProductLine } from "../business-logic/categories/product-lines";
 import { BASE_ASSUMPTIONS, type ScenarioInput } from "../business-logic/financial/engine";
 import { SIMULATOR_DEFAULTS, type SimulatorInput } from "../business-logic/financial/simulator";
 import type { ExportFormat, ExportReport, ExportData } from "../models/exports";
@@ -60,14 +61,11 @@ export const demoUsers = (): DemoUser[] => [
 
 /* ---------- catálogo ---------- */
 
-export const demoCategories = (): string[] => [
-  "Alimentos balanceados",
-  "Medicina veterinaria",
-  "Semillas y fertilizantes",
-  "Aves de corral",
-  "Agroquímicos",
-  "Ferretería agrícola",
-];
+/** Las seis líneas de la página pública (código, nombre, descripción y subfamilias): la misma lista que la migración 0018. */
+export const demoLines = (): readonly ProductLine[] => PRODUCT_LINES;
+
+/** Nombres de las seis líneas, en el orden del catálogo. */
+export const demoCategories = (): string[] => PRODUCT_LINES.map((l) => l.name);
 
 export type DemoSupplier = { name: string; taxId: string; phone: string };
 
@@ -85,7 +83,7 @@ const SUPPLIER_BY_CATEGORY: Record<string, number> = {
   "Medicina veterinaria": 1,
   "Semillas y fertilizantes": 2,
   "Aves de corral": 3,
-  "Agroquímicos": 2,
+  "Productos agroquímicos": 2,
   "Ferretería agrícola": 4,
 };
 
@@ -165,7 +163,7 @@ const CATALOG: Record<string, [code: string, items: ProductSpec[]]> = {
       ["Huevo fértil criollo x 30", 36000, 48000, 2, 1, 2, 10],
     ],
   ],
-  "Agroquímicos": [
+  "Productos agroquímicos": [
     "AGQ",
     [
       ["Glifosato 480 SL 1 L", 26000, 35000, 6, 1, 3, 730],
