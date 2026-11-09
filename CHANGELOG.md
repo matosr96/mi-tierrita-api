@@ -2,6 +2,24 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es/1.1.0/). Fechas en hora de Colombia.
 
+## [Sin publicar] · Líneas de producto iguales en la página pública y en el sistema (6/11/2026)
+
+### Añadido
+- Migración `0018_lineas_publicas`: cada categoría tiene `code` («01»…«06» solo en las seis líneas públicas; nulo en las internas), `description` y `tags` (subfamilias). La línea 05 pasa a llamarse «Productos agroquímicos», como en la página pública. Las seis líneas iniciales viven en `business-logic/categories/product-lines.ts`; la fuente en ejecución es la tabla `categories`.
+- `GET /categories/public` (sin sesión, 60 peticiones por minuto por IP, `Cache-Control` de 5 minutos): las categorías activas con código, solo `code`, `name`, `description` y `tags`, en el orden del código. Lo lee la página pública para que sus líneas sean las mismas del inventario. Montado antes de `authenticate`; `GET /categories` sigue pidiendo sesión.
+- `POST` y `PUT /categories` aceptan `description` y `tags` (subfamilia repetida → 400 en `tags[n]`). Pruebas nuevas en `tests/categories.test.ts`.
+
+### Cambiado
+- Todo listado de categorías va por código y luego por nombre (`CATEGORY_ORDER`); el desglose por categoría del reporte de inventario sigue ese orden y trae `categoryActive`.
+- `pnpm db:seed` busca las líneas por código y después por nombre, les completa el código si la base es anterior a la 0018 y las crea con descripción y subfamilias; el catálogo demo y los proveedores usan «Productos agroquímicos».
+- `docs/openapi.yaml` y `README.md` documentan los campos nuevos y la ruta pública.
+
+## [Sin publicar] · Informe del proyecto y totales de D&A (5/11/2026)
+
+### Añadido
+- Simulador: `result.investment` trae `depreciationTotal` y `amortizationTotal` (sumas del horizonte: $31.000.000 y $6.500.000 en el ejemplo de la ampliación) para que la app muestre las dos tablas por separado sin sumar. Prueba en `tests/financial-simulator.test.ts`.
+- Tita: la herramienta `generar_reporte` acepta `tipo: "scenario"` (solo Administrador) con `proyectoId` opcional y deja la tarjeta «Informe del proyecto» que abre Reportes → Informe con ese escenario (sin id, el ejemplo de la ampliación). `ReportKind` de `tool-kit.ts` gana `scenario`; prueba en `tests/ai.test.ts` (Secretaria rechazada).
+
 ## [Sin publicar] · Fase B del brief: simulador financiero (29/10/2026)
 
 ### Añadido
