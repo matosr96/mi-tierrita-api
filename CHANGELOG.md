@@ -2,6 +2,11 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es/1.1.0/). Fechas en hora de Colombia.
 
+## [Sin publicar] · Reinicio de datos para sembrar producción (9/11/2026)
+
+### Añadido
+- `pnpm db:reset` / `pnpm db:reset:prod` (`src/scripts/reset-data.ts`): vacía las tablas de negocio y conserva `users`, `roles` y el control de migraciones. Exige `RESET_DATA_CONFIRM=<marca>` y cada marca se usa una sola vez (tabla `data_resets`), para que un reinicio del servidor no vuelva a borrar. Se usó para sacar de producción el conjunto de prueba del colmado anterior y cargar la semilla de la agropecuaria. Prueba en `tests/reset-data.test.ts`.
+
 ## [Sin publicar] · Líneas de producto iguales en la página pública y en el sistema (6/11/2026)
 
 ### Añadido

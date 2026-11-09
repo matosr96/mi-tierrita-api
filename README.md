@@ -45,6 +45,7 @@ Comandos:
 | `pnpm db:migrate` / `pnpm db:status` | Aplica o lista migraciones |
 | `pnpm create-admin <usuario> <clave>` | Crea el primer ADMIN (no hay registro público) |
 | `pnpm db:seed` / `pnpm db:seed:prod` | Datos de ejemplo idempotentes (desde `src/` o desde `build/`) |
+| `RESET_DATA_CONFIRM=<marca> pnpm db:reset` / `pnpm db:reset:prod` | Vacía las tablas de negocio y conserva las cuentas; cada marca sirve una sola vez (ver «Reinicio de datos») |
 | `docker compose up --build` | API + base de datos en contenedores |
 
 ## Variables de entorno
@@ -74,6 +75,16 @@ natural (usuario, SKU, NIT, documento, nombre del escenario, `clientId` del mens
 existe se deja igual; correrlo dos veces no duplica nada ni toca los datos que no son demo. Tarda unos segundos, no
 necesita red ni `ANTHROPIC_API_KEY`, y al final imprime cuántos registros creó u omitió. Con `SEED_ON_START=true` el
 servidor lo ejecuta al arrancar, después de `db.ping()`.
+
+### Reinicio de datos
+
+`RESET_DATA_CONFIRM=<marca> pnpm db:reset` (`db:reset:prod` desde `build/`) deja la base lista para volver a sembrar: vacía
+en una sola transacción (`TRUNCATE … RESTART IDENTITY CASCADE`) todas las tablas de negocio del esquema `public` y conserva
+`users`, `roles`, `schema_migrations` y `data_resets`; si el número de usuarios cambiara, se deshace. Sin la variable no hace
+nada, y cada marca se anota en `data_resets` y **solo sirve una vez**: un arranque repetido con la misma variable no vuelve a
+borrar. Se escribió el 9/11/2026 para sacar de producción el conjunto de prueba de la etapa anterior (colmado) antes de correr
+`pnpm db:seed:prod`; en el servidor se ejecuta una sola vez poniendo la variable y `pnpm db:reset:prod && pnpm db:seed:prod`
+delante de `pnpm start`, y después se quitan ambos.
 
 Qué crea y cómo se reconoce (sin columnas nuevas):
 

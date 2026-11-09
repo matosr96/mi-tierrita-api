@@ -18,6 +18,8 @@
     "db:status": "tsx src/scripts/migrate.ts status",
     "db:seed": "tsx src/scripts/seed.ts",
     "db:seed:prod": "node build/scripts/seed.js",
+    "db:reset": "tsx src/scripts/reset-data.ts",
+    "db:reset:prod": "node build/scripts/reset-data.js",
     "create-admin": "tsx src/scripts/create-admin.ts",
     "vapid": "tsx src/scripts/vapid.ts"
   },
